@@ -1,3 +1,4 @@
+
 import os
 import time
 import secrets
@@ -142,11 +143,12 @@ def create_private_lobby(data=None):
     sid_room[sid] = code
     join_room(code)
 
-    emit("private_lobby_created", {
+    socketio.emit("private_lobby_created", {
+        "code": code,
         "room": code,
         "seconds": seconds,
         "increment": increment
-    })
+    }, to=sid)
 
 
 @socketio.on("join_private_lobby")
@@ -314,4 +316,3 @@ if __name__ == "__main__":
         debug=False,
         allow_unsafe_werkzeug=True
     )
-
