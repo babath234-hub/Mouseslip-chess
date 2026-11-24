@@ -1,0 +1,198 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Mouseslip Chess</title>
+<script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
+<style>
+:root{--bg:#171b19;--panel:#222a25;--green:#78bd88;--mint:#8bd49b;--muted:#b9c5bc}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:white;font-family:Arial,sans-serif;min-height:100vh;display:flex;justify-content:center;align-items:center}
+.wrap{width:min(960px,96vw);padding:22px;text-align:center}.screen{display:none}.screen.active{display:block}
+h1{font-size:clamp(34px,6vw,54px);color:var(--mint);margin:10px 0}h2{color:var(--mint)}p{color:var(--muted)}
+button,select{border:0;border-radius:9px;padding:13px 17px;font-size:16px;font-weight:bold}
+button{background:var(--green);color:#142018;cursor:pointer}button:hover{filter:brightness(1.1)}button.secondary{background:#303a33;color:white}
+.menu{display:grid;gap:14px;max-width:320px;margin:32px auto}.panel{background:var(--panel);padding:22px;border-radius:16px;max-width:540px;margin:22px auto;text-align:left}
+.option{margin:20px 0}.option label{display:block;margin-bottom:10px;font-weight:bold}.value{float:right;color:var(--mint)}
+input[type=range]{width:100%;accent-color:var(--green)}select{width:100%;background:#303a33;color:white}
+.buttons{display:flex;gap:12px;justify-content:center;margin:18px auto;max-width:540px}.buttons button{flex:1}
+.board{width:min(82vw,560px);aspect-ratio:1;display:grid;grid-template-columns:repeat(8,minmax(0,1fr));grid-template-rows:repeat(8,minmax(0,1fr));margin:18px auto;border:5px solid #303a33;overflow:hidden}.sq{min-width:0;min-height:0;width:100%;height:100%;padding:0}
+.sq{display:flex;align-items:center;justify-content:center;position:relative;font-size:clamp(24px,6.5vw,54px);cursor:pointer;user-select:none;line-height:1}
+.light{background:#f0d9b5}.dark{background:#b58863}.sq.sel{box-shadow:inset 0 0 0 5px #a5c95c}.sq.target:after{content:"";width:25%;height:25%;border-radius:50%;background:#236c3c;opacity:.7;position:absolute}.sq.capture:after{content:"";position:absolute;inset:4px;border:5px solid #236c3c;border-radius:50%;opacity:.7}
+.whitepiece{color:#fffdf4;text-shadow:1px 1px 2px #333,-1px -1px 1px #333}.blackpiece{color:#171717;text-shadow:0 0 1px #fff}
+.small{font-size:13px}.status{min-height:24px;font-weight:bold;color:var(--mint)}.row{display:flex;gap:10px;justify-content:center;flex-wrap:wrap}.row button{min-width:130px}
+@media(max-width:500px){.wrap{padding:8px}.panel{padding:15px}.board{width:94vw}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <section id="home" class="screen active">
+    <h1>MOUSESLIP CHESS</h1><p>Every move has a mind of its own.</p>
+    <div class="menu">
+      <button onclick="show('setup')">Play Against Bot</button>
+      <button onclick="show('online')">Play Online</button>
+      <button class="secondary" onclick="show('rules')">How to Play</button>
+    </div>
+  </section>
+
+  <section id="setup" class="screen">
+    <h2>PLAY AGAINST BOT</h2><p>Set up your match.</p>
+    <div class="panel">
+      <div class="option"><label>Bot Difficulty <span class="value" id="diffValue">5</span></label>
+        <input id="difficulty" type="range" min="1" max="10" value="5" oninput="updateDiff()"><p id="diffText">Normal</p></div>
+      <div class="option"><label>Your Colour</label><select id="colour"><option value="white">White</option><option value="black">Black</option><option value="random">Random</option></select></div>
+      <div class="option"><label>Time Control</label><select id="time"><option value="1">1 minute</option><option value="3">3 minutes</option><option value="5" selected>5 minutes</option><option value="10">10 minutes</option><option value="15">15 minutes</option><option value="0">Unlimited</option></select></div>
+    </div>
+    <div class="buttons"><button class="secondary" onclick="show('home')">Back</button><button onclick="startBot()">Start Game</button></div>
+  </section>
+
+  <section id="online" class="screen">
+    <h2>PLAY ONLINE</h2><p>Find a random opponent.</p>
+    <div class="panel" style="text-align:center">
+      <p id="onlineStatus">Join the matchmaking queue and we'll pair you with the next available player.</p>
+      <div class="row"><button onclick="findOpponent()">Find Random Opponent</button><button class="secondary" onclick="cancelSearch()">Cancel Search</button></div>
+    </div>
+    <button class="secondary" onclick="show('home')">Back</button>
+  </section>
+
+  <section id="rules" class="screen">
+    <h2>HOW TO PLAY</h2><div class="panel">
+      <p>Choose a piece and a legal destination. The piece may slip to a nearby legal destination.</p>
+      <p>If the piece has only one legal destination, it moves there normally.</p>
+      <p>Knights can only slip in the same forward/backward rank direction as the intended move.</p>
+      <p>Capture the opposing king to win. The bot follows the same rules.</p>
+    </div><button class="secondary" onclick="show('home')">Back</button>
+  </section>
+
+  <section id="game" class="screen">
+    <h2>MOUSESLIP CHESS</h2><p id="gameInfo"></p>
+    <p class="status" id="status">White to move</p>
+    <div id="board" class="board"></div>
+    <p id="lastMove" class="small"></p>
+    <div class="row"><button class="secondary" onclick="resetGame()">Restart</button><button class="secondary" onclick="resign()">Resign</button><button class="secondary" onclick="show('home')">Menu</button></div>
+  </section>
+</div>
+<script>
+const socket = (typeof io !== "undefined") ? io() : null;
+const GLYPH={K:"♔",Q:"♕",R:"♖",B:"♗",N:"♘",P:"♙",k:"♚",q:"♛",r:"♜",b:"♝",n:"♞",p:"♟"};
+let board=[],turn="w",selected=null,legalForSelected=[],human="w",mode="bot",difficulty=5,room=null,onlineColor=null,searching=false,gameOver=false,history=[],lastMoveText="";
+function show(id){document.querySelectorAll(".screen").forEach(x=>x.classList.remove("active"));document.getElementById(id).classList.add("active")}
+function updateDiff(){let n=+document.getElementById("difficulty").value;document.getElementById("diffValue").textContent=n;document.getElementById("diffText").textContent=n<=2?"Very Easy":n<=4?"Easy":n<=6?"Normal":n<=8?"Hard":"Expert"}
+function initial(){return [
+["r","n","b","q","k","b","n","r"],["p","p","p","p","p","p","p","p"],
+["","","","","","","",""],["","","","","","","",""],["","","","","","","",""],["","","","","","","",""],
+["P","P","P","P","P","P","P","P"],["R","N","B","Q","K","B","N","R"]]}
+function startBot(){mode="bot";difficulty=+document.getElementById("difficulty").value;let c=document.getElementById("colour").value;human=c==="random"?(Math.random()<.5?"w":"b"):(c==="white"?"w":"b");beginGame("Bot difficulty "+difficulty+" · You are "+(human==="w"?"White":"Black"))}
+function beginGame(info){board=initial();turn="w";selected=null;gameOver=false;history=[];lastMoveText="";document.getElementById("gameInfo").textContent=info;document.getElementById("lastMove").textContent="";show("game");render();updateStatus();if(mode==="bot"&&human==="b")setTimeout(botMove,500)}
+function colorOf(p){return !p?"":p===p.toUpperCase()?"w":"b"}
+function inside(r,c){return r>=0&&r<8&&c>=0&&c<8}
+function copyBoard(b){return b.map(row=>row.slice())}
+function findKing(b,color){let k=color==="w"?"K":"k";for(let r=0;r<8;r++)for(let c=0;c<8;c++)if(b[r][c]===k)return [r,c];return null}
+function attacked(b,r,c,by){
+  const pawnDir=by==="w"?-1:1, pawn=by==="w"?"P":"p";
+  for(let dc of [-1,1]){let rr=r-pawnDir,cc=c-dc;if(inside(rr,cc)&&b[rr][cc]===pawn)return true}
+  const knight=by==="w"?"N":"n";for(let [dr,dc] of [[-2,-1],[-2,1],[-1,-2],[-1,2],[1,-2],[1,2],[2,-1],[2,1]]){let rr=r+dr,cc=c+dc;if(inside(rr,cc)&&b[rr][cc]===knight)return true}
+  const king=by==="w"?"K":"k";for(let dr=-1;dr<=1;dr++)for(let dc=-1;dc<=1;dc++){if(!dr&&!dc)continue;let rr=r+dr,cc=c+dc;if(inside(rr,cc)&&b[rr][cc]===king)return true}
+  const rays=[[-1,0],[1,0],[0,-1],[0,1],[-1,-1],[-1,1],[1,-1],[1,1]];
+  for(let i=0;i<rays.length;i++){let [dr,dc]=rays[i],rr=r+dr,cc=c+dc,step=1;while(inside(rr,cc)){let p=b[rr][cc];if(p){let q=p.toLowerCase();if(colorOf(p)===by&&(q==="q"||(i<4&&q==="r")||(i>=4&&q==="b")||(step===1&&q==="k")))return true;break}rr+=dr;cc+=dc;step++}}
+  return false;
+}
+function pseudoMoves(b,r,c){
+  let p=b[r][c],color=colorOf(p),type=p.toLowerCase(),out=[];
+  const add=(rr,cc)=>{if(!inside(rr,cc))return false;let dest=b[rr][cc];if(colorOf(dest)===color)return false;out.push({fr:r,fc:c,tr:rr,tc:cc,piece:p,capture:dest});return !dest};
+  if(type==="p"){let d=color==="w"?-1:1;if(inside(r+d,c)&&!b[r+d][c]){add(r+d,c);let start=color==="w"?6:1;if(r===start&&!b[r+2*d][c])add(r+2*d,c)}for(let dc of [-1,1])if(inside(r+d,c+dc)&&b[r+d][c+dc]&&colorOf(b[r+d][c+dc])!==color)add(r+d,c+dc)}
+  else if(type==="n"){for(let [dr,dc] of [[-2,-1],[-2,1],[-1,-2],[-1,2],[1,-2],[1,2],[2,-1],[2,1]])add(r+dr,c+dc)}
+  else {let dirs=[];if(type==="b"||type==="q")dirs.push([-1,-1],[-1,1],[1,-1],[1,1]);if(type==="r"||type==="q")dirs.push([-1,0],[1,0],[0,-1],[0,1]);if(type==="k")dirs=[[-1,-1],[-1,0],[-1,1],[0,-1],[0,1],[1,-1],[1,0],[1,1]];
+    for(let [dr,dc] of dirs){let rr=r+dr,cc=c+dc;while(inside(rr,cc)){let empty=add(rr,cc);if(type==="k"||!empty)break;rr+=dr;cc+=dc}}
+  }
+  return out;
+}
+function applyRaw(b,m){let n=copyBoard(b),p=n[m.fr][m.fc];n[m.fr][m.fc]="";n[m.tr][m.tc]=p;if(p==="P"&&m.tr===0)n[m.tr][m.tc]="Q";if(p==="p"&&m.tr===7)n[m.tr][m.tc]="q";return n}
+function legalMovesFrom(b,r,c){
+  // Mouseslip Chess uses king capture, not check/checkmate.
+  // A move is legal if it follows the piece's normal movement rules;
+  // leaving your own king under attack is allowed.
+  if(!b[r][c])return [];
+  return pseudoMoves(b,r,c);
+}
+function allLegal(color){let out=[];for(let r=0;r<8;r++)for(let c=0;c<8;c++)if(colorOf(board[r][c])===color)out.push(...legalMovesFrom(board,r,c));return out}
+function same(a,b){return a.fr===b.fr&&a.fc===b.fc&&a.tr===b.tr&&a.tc===b.tc}
+function chooseSlip(intended,all){
+  let piece=board[intended.fr][intended.fc],type=piece.toLowerCase();
+  if(all.length<=1)return intended;
+  let candidates;
+  if(type==="n"){
+    // Knight exception: only consider legal destinations in the same
+    // rank direction as the intended move.
+    let intendedRank=Math.sign(intended.tr-intended.fr);
+    candidates=all.filter(m=>Math.sign(m.tr-m.fr)===intendedRank);
+  } else {
+    // Include every legal destination within one square of the intended
+    // destination. This includes legal captures, including pawn captures.
+    candidates=all.filter(m=>Math.max(Math.abs(m.tr-intended.tr),Math.abs(m.tc-intended.tc))<=1);
+  }
+  // If another eligible destination exists, guarantee an actual slip:
+  // never randomly select the originally intended square.
+  let alternatives=candidates.filter(m=>!same(m,intended));
+  if(alternatives.length===0)return intended;
+  return alternatives[Math.floor(Math.random()*alternatives.length)];
+}
+function coord(m){return "abcdefgh"[m.fc]+(8-m.fr)+" → "+"abcdefgh"[m.tc]+(8-m.tr)}
+function performMove(m,send=true){
+  if(gameOver)return;
+  let mover=turn,actual=m;
+  let all=legalMovesFrom(board,m.fr,m.fc);
+  if(mode!=="online"||mover===onlineColor)actual=chooseSlip(m,all);
+  let captured=board[actual.tr][actual.tc];
+  board=applyRaw(board,actual);turn=turn==="w"?"b":"w";selected=null;legalForSelected=[];
+  lastMoveText=(mover==="w"?"White":"Black")+" intended "+coord(m)+"; actual "+coord(actual);
+  document.getElementById("lastMove").textContent=lastMoveText;
+  if(captured==="k"||captured==="K"){gameOver=true;document.getElementById("status").textContent=(mover==="w"?"White":"Black")+" wins by capturing the king!"}
+  else updateStatus();
+  if(mode==="online"&&send&&socket)socket.emit("online_move",{room,move:{fr:actual.fr,fc:actual.fc,tr:actual.tr,tc:actual.tc}});
+  render();
+  if(mode==="bot"&&!gameOver&&turn!==human)setTimeout(botMove,450);
+}
+function onSquare(r,c){
+  if(gameOver)return;if(mode==="online"&&turn!==onlineColor)return;if(mode==="bot"&&turn!==human)return;
+  let p=board[r][c];
+  if(selected){let m=legalForSelected.find(x=>x.tr===r&&x.tc===c);if(m){performMove(m);return}}
+  if(p&&colorOf(p)===turn){selected={r,c};legalForSelected=legalMovesFrom(board,r,c);render();return}
+  selected=null;legalForSelected=[];render();
+}
+function render(){
+  let el=document.getElementById("board");el.innerHTML="";
+  for(let vr=0;vr<8;vr++)for(let vc=0;vc<8;vc++){let r=human==="b"&&mode!=="online"?7-vr:vr,c=human==="b"&&mode!=="online"?7-vc:vc;
+    if(mode==="online"&&onlineColor==="b"){r=7-vr;c=7-vc}
+    let s=document.createElement("div");s.className="sq "+((vr+vc)%2===0?"light":"dark");
+    if(selected&&selected.r===r&&selected.c===c)s.classList.add("sel");
+    if(legalForSelected.some(m=>m.tr===r&&m.tc===c))s.classList.add(board[r][c]?"capture":"target");
+    let p=board[r][c];if(p){s.textContent=GLYPH[p];s.classList.add(colorOf(p)==="w"?"whitepiece":"blackpiece")}
+    s.onclick=()=>onSquare(r,c);el.appendChild(s)
+  }
+}
+function updateStatus(){
+  let moves=allLegal(turn);
+  document.getElementById("status").textContent=(turn==="w"?"White":"Black")+" to move"+(moves.length===0?" · No legal moves":"");
+}
+function botMove(){
+  if(gameOver||mode!=="bot"||turn===human)return;
+  let moves=allLegal(turn);if(!moves.length){gameOver=true;document.getElementById("status").textContent="No legal moves. Game over.";return}
+  let scored=moves.map(m=>({m,score:(m.capture?10:0)+(m.capture&&m.capture.toLowerCase()==="q"?8:0)+(m.tr===0||m.tr===7?3:0)+Math.random()*(11-difficulty)}));
+  scored.sort((a,b)=>b.score-a.score);let pool=scored.slice(0,Math.max(1,11-difficulty));let chosen=pool[Math.floor(Math.random()*pool.length)].m;
+  performMove(chosen,false);
+}
+function resetGame(){if(mode==="online"){document.getElementById("status").textContent="Online game cannot be reset unilaterally. Return to menu to leave." ;return}beginGame(mode==="bot"?"Bot difficulty "+difficulty+" · You are "+(human==="w"?"White":"Black"):"Local game")}
+function resign(){if(gameOver)return;gameOver=true;if(mode==="online"&&socket)socket.emit("online_resign",{room});document.getElementById("status").textContent=(turn==="w"?"White":"Black")+" resigned."}
+function findOpponent(){if(!socket){document.getElementById("onlineStatus").textContent="Connection unavailable. Start the Flask server first.";return}searching=true;document.getElementById("onlineStatus").textContent="Searching for a player...";socket.emit("find_match")}
+function cancelSearch(){searching=false;if(socket)socket.emit("cancel_match");document.getElementById("onlineStatus").textContent="Search cancelled."}
+if(socket){
+ socket.on("searching",d=>document.getElementById("onlineStatus").textContent=d.message);
+ socket.on("match_found",d=>{room=d.room;onlineColor=d.color;human=onlineColor;mode="online";searching=false;beginGame("Online match · You are "+(onlineColor==="w"?"White":"Black"));document.getElementById("onlineStatus").textContent="Opponent found!"});
+ socket.on("match_cancelled",()=>{searching=false});
+ socket.on("opponent_move",m=>{if(!m||gameOver)return;let captured=board[m.tr][m.tc];board=applyRaw(board,m);turn=turn==="w"?"b":"w";lastMoveText="Opponent moved.";document.getElementById("lastMove").textContent=lastMoveText;if(captured==="k"||captured==="K"){gameOver=true;document.getElementById("status").textContent="You lost: your king was captured."}else updateStatus();render()});
+ socket.on("opponent_resigned",()=>{gameOver=true;document.getElementById("status").textContent="Your opponent resigned. You win!"});
+ socket.on("opponent_disconnected",()=>{gameOver=true;document.getElementById("status").textContent="Your opponent disconnected."});
+}
+</script>
+</body></html>
