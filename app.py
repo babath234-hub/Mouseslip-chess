@@ -4,21 +4,18 @@ import time
 import secrets
 import string
 import re
+import logging
 
-from flask import (
-    Flask, render_template, request, jsonify, session
-)
+from flask import Flask, render_template, request, jsonify, session
 from flask_socketio import SocketIO, emit, join_room
 from werkzeug.security import generate_password_hash, check_password_hash
 from supabase import create_client
 
 
-# --------------------------------------------------
 # CONFIGURATION
-# --------------------------------------------------
+logging.basicConfig(level=logging.INFO)
 
 app = Flask(__name__)
-
 app.config["SECRET_KEY"] = os.environ["FLASK_SECRET_KEY"]
 app.config["SESSION_COOKIE_HTTPONLY"] = True
 app.config["SESSION_COOKIE_SECURE"] = True
@@ -36,19 +33,24 @@ supabase = create_client(
 )
 
 
-# --------------------------------------------------
 # GAME STORAGE
-# --------------------------------------------------
-
 waiting_player = None
 rooms = {}
 sid_room = {}
 
 
-# --------------------------------------------------
-# ACCOUNT HELPERS
-# --------------------------------------------------
+# ERROR HANDLING
+def database_error(action):
+    app.logger.exception("Database error during: %s", action)
+    return jsonify({
+        "error": (
+            "The database request failed. "
+            "Open Render Logs and check the newest error."
+        )
+    }), 500
 
+
+# ACCOUNT HELPERS
 def get_player_by_username(username):
     result = (
         supabase.table("players")
@@ -56,7 +58,6 @@ def get_player_by_username(username):
         .eq("username", username)
         .execute()
     )
-
     return result.data[0] if result.data else None
 
 
@@ -67,23 +68,18 @@ def get_player_by_id(player_id):
         .eq("id", player_id)
         .execute()
     )
-
     return result.data[0] if result.data else None
 
 
 def current_player():
     player_id = session.get("player_id")
-
     if not player_id:
         return None
-
     return get_player_by_id(player_id)
 
 
 def valid_username(username):
-    return bool(
-        re.fullmatch(r"[A-Za-z0-9_]{3,16}", username)
-    )
+    return bool(re.fullmatch(r"[A-Za-z0-9_]{3,16}", username))
 
 
 def account_response(player):
@@ -94,42 +90,43 @@ def account_response(player):
     }
 
 
-# --------------------------------------------------
-# ACCOUNT ROUTES
-# --------------------------------------------------
-
+# WEBSITE
 @app.route("/")
 def home():
     return render_template("index.html")
 
 
+# REGISTER
 @app.route("/api/register", methods=["POST"])
 def register():
-    data = request.get_json(silent=True) or {}
-
-    username = str(data.get("username", "")).strip()
-    password = str(data.get("password", ""))
-
-    if not valid_username(username):
-        return jsonify({
-            "error": "Username must be 3–16 characters and use only letters, numbers or underscores."
-        }), 400
-
-    if len(password) < 8 or len(password) > 128:
-        return jsonify({
-            "error": "Password must be between 8 and 128 characters."
-        }), 400
-
-    username = username.lower()
-
-    if get_player_by_username(username):
-        return jsonify({
-            "error": "That username is already taken."
-        }), 409
-
-    password_hash = generate_password_hash(password)
-
     try:
+        data = request.get_json(silent=True) or {}
+
+        username = str(data.get("username", "")).strip()
+        password = str(data.get("password", ""))
+
+        if not valid_username(username):
+            return jsonify({
+                "error": (
+                    "Username must be 3–16 characters "
+                    "and use only letters, numbers or underscores."
+                )
+            }), 400
+
+        if len(password) < 8 or len(password) > 128:
+            return jsonify({
+                "error": "Password must be between 8 and 128 characters."
+            }), 400
+
+        username = username.lower()
+
+        if get_player_by_username(username):
+            return jsonify({
+                "error": "That username is already taken."
+            }), 409
+
+        password_hash = generate_password_hash(password)
+
         result = (
             supabase.table("players")
             .insert({
@@ -140,94 +137,108 @@ def register():
             .execute()
         )
 
+        if not result.data:
+            raise Exception("Supabase did not return the new player.")
+
         player = result.data[0]
 
-    except Exception:
+        session.clear()
+        session["player_id"] = player["id"]
+
         return jsonify({
-            "error": "Could not create your account. Try another username."
-        }), 400
+            "success": True,
+            "player": account_response(player)
+        })
 
-    session.clear()
-    session["player_id"] = player["id"]
-
-    return jsonify({
-        "success": True,
-        "player": account_response(player)
-    })
+    except Exception:
+        return database_error("account registration")
 
 
+# LOGIN
 @app.route("/api/login", methods=["POST"])
 def login():
-    data = request.get_json(silent=True) or {}
+    try:
+        data = request.get_json(silent=True) or {}
 
-    username = str(data.get("username", "")).strip().lower()
-    password = str(data.get("password", ""))
+        username = str(data.get("username", "")).strip().lower()
+        password = str(data.get("password", ""))
 
-    player = get_player_by_username(username)
+        player = get_player_by_username(username)
 
-    if not player or not check_password_hash(
-        player["password_hash"], password
-    ):
+        if not player or not check_password_hash(
+            player["password_hash"], password
+        ):
+            return jsonify({
+                "error": "Incorrect username or password."
+            }), 401
+
+        session.clear()
+        session["player_id"] = player["id"]
+
         return jsonify({
-            "error": "Incorrect username or password."
-        }), 401
+            "success": True,
+            "player": account_response(player)
+        })
 
-    session.clear()
-    session["player_id"] = player["id"]
-
-    return jsonify({
-        "success": True,
-        "player": account_response(player)
-    })
+    except Exception:
+        return database_error("account login")
 
 
+# LOGOUT
 @app.route("/api/logout", methods=["POST"])
 def logout():
     session.clear()
-
     return jsonify({"success": True})
 
 
+# CURRENT ACCOUNT
 @app.route("/api/me")
 def me():
-    player = current_player()
+    try:
+        player = current_player()
 
-    if not player:
-        return jsonify({"logged_in": False})
+        if not player:
+            return jsonify({"logged_in": False})
 
-    return jsonify({
-        "logged_in": True,
-        "player": account_response(player)
-    })
+        return jsonify({
+            "logged_in": True,
+            "player": account_response(player)
+        })
+
+    except Exception:
+        return database_error("loading current account")
 
 
+# CHANGE USERNAME
 @app.route("/api/change-username", methods=["POST"])
 def change_username():
-    player = current_player()
-
-    if not player:
-        return jsonify({
-            "error": "You must be logged in."
-        }), 401
-
-    data = request.get_json(silent=True) or {}
-    username = str(data.get("username", "")).strip()
-
-    if not valid_username(username):
-        return jsonify({
-            "error": "Username must be 3–16 characters and use only letters, numbers or underscores."
-        }), 400
-
-    username = username.lower()
-
-    existing = get_player_by_username(username)
-
-    if existing and existing["id"] != player["id"]:
-        return jsonify({
-            "error": "That username is already taken."
-        }), 409
-
     try:
+        player = current_player()
+
+        if not player:
+            return jsonify({
+                "error": "You must be logged in."
+            }), 401
+
+        data = request.get_json(silent=True) or {}
+        username = str(data.get("username", "")).strip()
+
+        if not valid_username(username):
+            return jsonify({
+                "error": (
+                    "Username must be 3–16 characters "
+                    "and use only letters, numbers or underscores."
+                )
+            }), 400
+
+        username = username.lower()
+        existing = get_player_by_username(username)
+
+        if existing and existing["id"] != player["id"]:
+            return jsonify({
+                "error": "That username is already taken."
+            }), 409
+
         result = (
             supabase.table("players")
             .update({"username": username})
@@ -235,23 +246,21 @@ def change_username():
             .execute()
         )
 
+        if not result.data:
+            raise Exception("Supabase did not return the updated player.")
+
         updated = result.data[0]
 
-    except Exception:
         return jsonify({
-            "error": "Could not change your username."
-        }), 400
+            "success": True,
+            "player": account_response(updated)
+        })
 
-    return jsonify({
-        "success": True,
-        "player": account_response(updated)
-    })
+    except Exception:
+        return database_error("changing username")
 
 
-# --------------------------------------------------
 # ROOM HELPERS
-# --------------------------------------------------
-
 def make_room_code():
     alphabet = string.ascii_uppercase + "23456789"
 
@@ -310,10 +319,7 @@ def emit_match(code):
     }, to=room["black"])
 
 
-# --------------------------------------------------
 # RANDOM MATCHMAKING
-# --------------------------------------------------
-
 @socketio.on("find_match")
 def find_match(data=None):
     global waiting_player
@@ -321,8 +327,13 @@ def find_match(data=None):
     data = data or {}
     sid = request.sid
 
-    seconds = max(0, min(7200, int(data.get("seconds", 300))))
-    increment = max(0, min(60, int(data.get("increment", 0))))
+    seconds = max(
+        0, min(7200, int(data.get("seconds", 300)))
+    )
+
+    increment = max(
+        0, min(60, int(data.get("increment", 0)))
+    )
 
     if waiting_player and waiting_player["sid"] != sid:
         other = waiting_player
@@ -359,17 +370,19 @@ def cancel_match():
     emit("match_cancelled")
 
 
-# --------------------------------------------------
 # PRIVATE LOBBIES
-# --------------------------------------------------
-
 @socketio.on("create_private_lobby")
 def create_private_lobby(data=None):
     data = data or {}
     sid = request.sid
 
-    seconds = max(0, min(7200, int(data.get("seconds", 300))))
-    increment = max(0, min(60, int(data.get("increment", 0))))
+    seconds = max(
+        0, min(7200, int(data.get("seconds", 300)))
+    )
+
+    increment = max(
+        0, min(60, int(data.get("increment", 0)))
+    )
 
     code = make_room_code()
 
@@ -415,7 +428,10 @@ def join_private_lobby(data=None):
 
     if room["white"] == request.sid:
         emit("private_lobby_error", {
-            "message": "You created this lobby. Share the code with your opponent."
+            "message": (
+                "You created this lobby. "
+                "Share the code with your opponent."
+            )
         })
         return
 
@@ -426,10 +442,7 @@ def join_private_lobby(data=None):
     emit_match(code)
 
 
-# --------------------------------------------------
 # ONLINE MOVES
-# --------------------------------------------------
-
 @socketio.on("online_move")
 def online_move(data=None):
     data = data or {}
@@ -451,7 +464,10 @@ def online_move(data=None):
             return
 
     elif not room["unlimited"]:
-        elapsed = max(0, now - room["last"])
+        elapsed = max(
+            0, now - room["last"]
+        )
+
         room["clocks"][room["active"]] -= elapsed
 
         if room["clocks"][room["active"]] <= 0:
@@ -479,7 +495,9 @@ def online_move(data=None):
         tr = int(move["tr"])
         tc = int(move["tc"])
 
-        if not all(0 <= x <= 7 for x in (fr, fc, tr, tc)):
+        if not all(
+            0 <= x <= 7 for x in (fr, fc, tr, tc)
+        ):
             return
 
     except (KeyError, TypeError, ValueError):
@@ -487,7 +505,6 @@ def online_move(data=None):
 
     room["started"] = True
     room["clocks"][side] += room["increment"]
-
     room["active"] = "b" if side == "w" else "w"
     room["last"] = now
 
@@ -505,16 +522,15 @@ def online_move(data=None):
     }, to=code)
 
 
-# --------------------------------------------------
 # RESIGNATION
-# --------------------------------------------------
-
 @socketio.on("online_resign")
 def online_resign(data=None):
     code = (data or {}).get("room")
     room = rooms.get(code)
 
-    if room and request.sid in (room["white"], room["black"]):
+    if room and request.sid in (
+        room["white"], room["black"]
+    ):
         room["over"] = True
 
         emit(
@@ -524,10 +540,7 @@ def online_resign(data=None):
         )
 
 
-# --------------------------------------------------
 # DISCONNECT
-# --------------------------------------------------
-
 @socketio.on("disconnect")
 def disconnect():
     global waiting_player
@@ -540,7 +553,9 @@ def disconnect():
     if code and code in rooms:
         room = rooms[code]
 
-        if request.sid in (room["white"], room["black"]):
+        if request.sid in (
+            room["white"], room["black"]
+        ):
             socketio.emit(
                 "opponent_disconnected",
                 to=code,
@@ -550,16 +565,14 @@ def disconnect():
             rooms.pop(code, None)
 
 
-# --------------------------------------------------
 # CLOCK WORKER
-# --------------------------------------------------
-
 def clock_worker():
     while True:
         socketio.sleep(0.25)
         now = time.monotonic()
 
         for code, room in list(rooms.items()):
+
             if (
                 not room["started"]
                 or room["over"]
@@ -568,7 +581,10 @@ def clock_worker():
             ):
                 continue
 
-            elapsed = max(0, now - room["last"])
+            elapsed = max(
+                0, now - room["last"]
+            )
+
             remaining = (
                 room["clocks"][room["active"]] - elapsed
             )
@@ -593,10 +609,7 @@ def clock_worker():
 socketio.start_background_task(clock_worker)
 
 
-# --------------------------------------------------
 # START SERVER
-# --------------------------------------------------
-
 if __name__ == "__main__":
     print("Mouseslip Chess server starting...")
 
