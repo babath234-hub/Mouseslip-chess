@@ -1,4 +1,3 @@
-
 <!doctype html>
 <html lang="en">
 <head>
@@ -6,12 +5,14 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Mouseslip Chess</title>
 <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
+
 <style>
 :root{--bg:#171b19;--panel:#222a25;--green:#78bd88;--mint:#8bd49b;--muted:#b9c5bc}
 *{box-sizing:border-box}
 body{margin:0;background:var(--bg);color:white;font-family:Arial,sans-serif;min-height:100vh;display:flex;justify-content:center;align-items:center}
 .wrap{width:min(960px,96vw);padding:22px;text-align:center}
-.screen{display:none}.screen.active{display:block}
+.screen{display:none}
+.screen.active{display:block}
 h1{font-size:clamp(34px,6vw,54px);color:var(--mint);margin:10px 0}
 h2{color:var(--mint)}
 p{color:var(--muted)}
@@ -31,24 +32,34 @@ input{margin:6px 0 14px}
 .buttons button{flex:1}
 .board{width:min(82vw,560px);aspect-ratio:1;display:grid;grid-template-columns:repeat(8,minmax(0,1fr));grid-template-rows:repeat(8,minmax(0,1fr));margin:18px auto;border:5px solid #303a33;overflow:hidden}
 .sq{min-width:0;min-height:0;width:100%;height:100%;padding:0;display:flex;align-items:center;justify-content:center;position:relative;font-size:clamp(24px,6.5vw,54px);cursor:pointer;user-select:none;line-height:1}
-.light{background:#f0d9b5}.dark{background:#b58863}
+.light{background:#f0d9b5}
+.dark{background:#b58863}
 .sq.sel{box-shadow:inset 0 0 0 5px #a5c95c}
 .sq.target:after{content:"";width:25%;height:25%;border-radius:50%;background:#236c3c;opacity:.7;position:absolute}
 .sq.capture:after{content:"";position:absolute;inset:4px;border:5px solid #236c3c;border-radius:50%;opacity:.7}
 .whitepiece{color:#fffdf4;text-shadow:1px 1px 2px #333,-1px -1px 1px #333}
 .blackpiece{color:#171717;text-shadow:0 0 1px #fff}
-.small{font-size:13px}.status{min-height:24px;font-weight:bold;color:var(--mint)}
+.small{font-size:13px}
+.status{min-height:24px;font-weight:bold;color:var(--mint)}
 .row{display:flex;gap:10px;justify-content:center;flex-wrap:wrap}
 .row button{min-width:130px}
 .account-bar{display:flex;justify-content:flex-end;gap:10px;align-items:center;margin-bottom:12px;flex-wrap:wrap}
 .account-bar span{color:var(--mint);font-weight:bold}
 .account-card{background:var(--panel);padding:16px;border-radius:12px;margin:16px auto;max-width:420px}
 .account-card p{margin:6px}
-.error{color:#ff9292;min-height:22px}.success{color:var(--mint);min-height:22px}
-.form-panel{max-width:420px}.form-panel button{width:100%;margin-top:8px}
-@media(max-width:500px){.wrap{padding:8px}.panel{padding:15px}.board{width:94vw}.account-bar{justify-content:center}}
+.error{color:#ff9292;min-height:22px}
+.success{color:var(--mint);min-height:22px}
+.form-panel{max-width:420px}
+.form-panel button{width:100%;margin-top:8px}
+@media(max-width:500px){
+.wrap{padding:8px}
+.panel{padding:15px}
+.board{width:94vw}
+.account-bar{justify-content:center}
+}
 </style>
 </head>
+
 <body>
 <div class="wrap">
 
@@ -70,15 +81,21 @@ input{margin:6px 0 14px}
 
 <section id="account" class="screen">
 <h2>YOUR ACCOUNT</h2>
+
 <div id="accountLoggedOut">
 <div class="panel form-panel">
 <h3 id="accountFormTitle">Login</h3>
+
 <label>Username</label>
 <input id="accountUsername" maxlength="16" autocomplete="username" placeholder="Enter username">
+
 <label>Password</label>
 <input id="accountPassword" type="password" maxlength="128" autocomplete="current-password" placeholder="Enter password">
+
 <p class="error" id="accountError"></p>
+
 <button onclick="submitAccount()">Login</button>
+
 <div class="row" style="margin-top:14px">
 <button class="secondary" onclick="toggleAccountForm()">Switch to Sign Up</button>
 </div>
@@ -91,6 +108,7 @@ input{margin:6px 0 14px}
 <p>Your rating</p>
 <h1 id="profileRating">1000</h1>
 </div>
+
 <div class="panel form-panel">
 <h3>Change Username</h3>
 <label>New username</label>
@@ -99,24 +117,29 @@ input{margin:6px 0 14px}
 <p class="error" id="usernameError"></p>
 <button onclick="changeUsername()">Save Username</button>
 </div>
+
 <div class="row">
 <button class="secondary" onclick="logout()">Logout</button>
 <button class="secondary" onclick="show('home')">Back</button>
 </div>
 </div>
+
 <div id="accountMessage" class="success"></div>
+
 <button class="secondary" onclick="show('home')">Back to Home</button>
 </section>
 
 <section id="setup" class="screen">
 <h2>PLAY AGAINST BOT</h2>
 <p>Set up your match.</p>
+
 <div class="panel">
 <div class="option">
 <label>Bot Difficulty <span class="value" id="diffValue">5</span></label>
 <input id="difficulty" type="range" min="1" max="10" value="5" oninput="updateDiff()">
 <p id="diffText">Normal</p>
 </div>
+
 <div class="option">
 <label>Your Colour</label>
 <select id="colour">
@@ -125,6 +148,7 @@ input{margin:6px 0 14px}
 <option value="random">Random</option>
 </select>
 </div>
+
 <div class="option">
 <label>Time Control</label>
 <select id="time">
@@ -137,6 +161,7 @@ input{margin:6px 0 14px}
 </select>
 </div>
 </div>
+
 <div class="buttons">
 <button class="secondary" onclick="show('home')">Back</button>
 <button onclick="startBot()">Start Game</button>
@@ -146,6 +171,7 @@ input{margin:6px 0 14px}
 <section id="online" class="screen">
 <h2>PLAY ONLINE</h2>
 <p>Choose how you want to play.</p>
+
 <div class="panel">
 <div class="option">
 <label>Time Control</label>
@@ -159,6 +185,7 @@ input{margin:6px 0 14px}
 <option value="0">Unlimited</option>
 </select>
 </div>
+
 <div class="option">
 <label>Increment</label>
 <select id="onlineIncrement">
@@ -170,26 +197,32 @@ input{margin:6px 0 14px}
 <option value="10">10 seconds</option>
 </select>
 </div>
+
 <div class="menu">
 <button onclick="findOpponent()">Find Random Opponent</button>
 <button onclick="createPrivateLobby()">Create Private Lobby</button>
 <button onclick="showJoinLobby()">Join Private Lobby</button>
 </div>
+
 <div id="privateCreate" style="display:none;text-align:center">
 <p>Your private lobby code:</p>
 <h1 id="lobbyCode" style="letter-spacing:5px"></h1>
 <p>Share this code with your opponent. Waiting for them to join...</p>
 </div>
+
 <div id="privateJoin" style="display:none;text-align:center">
 <label for="joinCode">Enter lobby code</label>
 <input id="joinCode" maxlength="6" autocomplete="off" style="text-transform:uppercase">
 <button onclick="joinPrivateLobby()">Join Lobby</button>
 </div>
+
 <p id="onlineStatus" class="status">Choose an online game option.</p>
+
 <div class="row">
 <button class="secondary" onclick="cancelSearch()">Cancel / Leave</button>
 </div>
 </div>
+
 <button class="secondary" onclick="show('home')">Back</button>
 </section>
 
@@ -200,7 +233,6 @@ input{margin:6px 0 14px}
 <p>If the piece has only one legal destination, it moves there normally.</p>
 <p>Knights can only slip in the same forward/backward rank direction as the intended move.</p>
 <p>Capture the opposing king to win. The bot follows the same rules.</p>
-<p>In online random matches, the winner gains 10 rating points and the loser loses 10.</p>
 </div>
 <button class="secondary" onclick="show('home')">Back</button>
 </section>
@@ -209,36 +241,56 @@ input{margin:6px 0 14px}
 <h2>MOUSESLIP CHESS</h2>
 <p id="gameInfo"></p>
 <p class="status" id="status">White to move</p>
+
 <div class="row" style="max-width:560px;margin:auto">
 <div class="panel" style="flex:1;text-align:center;margin:4px">
-<b>White</b><div id="whiteClock" style="font-size:28px">05:00</div>
+<b>White</b>
+<div id="whiteClock" style="font-size:28px">05:00</div>
 </div>
 <div class="panel" style="flex:1;text-align:center;margin:4px">
-<b>Black</b><div id="blackClock" style="font-size:28px">05:00</div>
+<b>Black</b>
+<div id="blackClock" style="font-size:28px">05:00</div>
 </div>
 </div>
+
 <div id="board" class="board"></div>
 <p id="lastMove" class="small"></p>
+
 <div class="row">
 <button class="secondary" onclick="resetGame()">Restart</button>
 <button class="secondary" onclick="resign()">Resign</button>
-<button class="secondary" onclick="leaveGame()">Menu</button>
+<button class="secondary" onclick="show('home')">Menu</button>
 </div>
 </section>
+
 </div>
 
 <script>
-const socket=typeof io!=="undefined"?io():null;
-const GLYPH={K:"♔",Q:"♕",R:"♖",B:"♗",N:"♘",P:"♙",k:"♚",q:"♛",r:"♜",b:"♝",n:"♞",p:"♟"};
+const socket = (typeof io !== "undefined") ? io() : null;
+
+const GLYPH={
+K:"♔",Q:"♕",R:"♖",B:"♗",N:"♘",P:"♙",
+k:"♚",q:"♛",r:"♜",b:"♝",n:"♞",p:"♟"
+};
 
 let board=[],turn="w",selected=null,legalForSelected=[];
 let human="w",mode="bot",difficulty=5,room=null,onlineColor=null;
 let searching=false,gameOver=false,history=[],lastMoveText="";
 let castleRights={wK:true,wQ:true,bK:true,bQ:true};
-let clockInitial=300,clockIncrement=0,clocks={w:300,b:300};
-let clockActive="w",clockStarted=false,clockLast=0,clockTimer=null;
-let accountMode="login",loggedInPlayer=null;
-let pendingSnapshot=null;
+
+let clockInitial=300;
+let clockIncrement=0;
+let clocks={w:300,b:300};
+let clockActive="w";
+let clockStarted=false;
+let clockLast=0;
+let clockTimer=null;
+
+let accountMode="login";
+let loggedInPlayer=null;
+
+
+// ACCOUNT FUNCTIONS
 
 async function apiRequest(url,data){
 const response=await fetch(url,{
@@ -247,33 +299,54 @@ credentials:"same-origin",
 headers:data?{"Content-Type":"application/json"}:{},
 body:data?JSON.stringify(data):undefined
 });
+
 let result;
-try{result=await response.json()}catch(e){throw new Error("The server returned an unexpected response.")}
+try{result=await response.json()}
+catch(e){throw new Error("The server returned an unexpected response.")}
+
 if(!response.ok)throw new Error(result.error||"Something went wrong.");
 return result;
 }
 
-function openAccount(){show("account");refreshAccount()}
+function openAccount(){
+show("account");
+refreshAccount();
+}
+
 function toggleAccountForm(){
 accountMode=accountMode==="login"?"register":"login";
-document.getElementById("accountFormTitle").textContent=accountMode==="login"?"Login":"Create Account";
-document.querySelector("#accountLoggedOut button").textContent=accountMode==="login"?"Login":"Create Account";
-document.querySelector("#accountLoggedOut .row button").textContent=accountMode==="login"?"Switch to Sign Up":"Switch to Login";
+document.getElementById("accountFormTitle").textContent=
+accountMode==="login"?"Login":"Create Account";
+document.querySelector("#accountLoggedOut button").textContent=
+accountMode==="login"?"Login":"Create Account";
+document.querySelector("#accountLoggedOut .row button").textContent=
+accountMode==="login"?"Switch to Sign Up":"Switch to Login";
 document.getElementById("accountPassword").value="";
 document.getElementById("accountError").textContent="";
-document.getElementById("accountPassword").autocomplete=accountMode==="login"?"current-password":"new-password";
+document.getElementById("accountPassword").autocomplete=
+accountMode==="login"?"current-password":"new-password";
 }
 
 async function submitAccount(){
 const username=document.getElementById("accountUsername").value.trim();
 const password=document.getElementById("accountPassword").value;
-const error=document.getElementById("accountError");error.textContent="";
+const error=document.getElementById("accountError");
+
+error.textContent="";
+
 try{
-const result=await apiRequest(accountMode==="login"?"/api/login":"/api/register",{username,password});
+const result=await apiRequest(
+accountMode==="login"?"/api/login":"/api/register",
+{username,password}
+);
+
 loggedInPlayer=result.player;
 document.getElementById("accountPassword").value="";
-updateAccountUI();show("account");
-}catch(e){error.textContent=e.message}
+updateAccountUI();
+show("account");
+}catch(e){
+error.textContent=e.message;
+}
 }
 
 async function refreshAccount(){
@@ -281,7 +354,10 @@ try{
 const result=await apiRequest("/api/me");
 loggedInPlayer=result.logged_in?result.player:null;
 updateAccountUI();
-}catch(e){loggedInPlayer=null;updateAccountUI()}
+}catch(e){
+loggedInPlayer=null;
+updateAccountUI();
+}
 }
 
 function updateAccountUI(){
@@ -289,37 +365,52 @@ const loggedOut=document.getElementById("accountLoggedOut");
 const loggedIn=document.getElementById("accountLoggedIn");
 const barText=document.getElementById("accountBarText");
 const barButton=document.getElementById("accountBarButton");
+
 if(loggedInPlayer){
-loggedOut.style.display="none";loggedIn.style.display="block";
+loggedOut.style.display="none";
+loggedIn.style.display="block";
 document.getElementById("profileUsername").textContent=loggedInPlayer.username;
 document.getElementById("profileRating").textContent=loggedInPlayer.rating;
 barText.textContent=loggedInPlayer.username+" · "+loggedInPlayer.rating;
 barButton.textContent="Profile";
 }else{
-loggedOut.style.display="block";loggedIn.style.display="none";
-barText.textContent="Not logged in";barButton.textContent="Login / Sign Up";
+loggedOut.style.display="block";
+loggedIn.style.display="none";
+barText.textContent="Not logged in";
+barButton.textContent="Login / Sign Up";
 }
 }
 
 async function changeUsername(){
 const username=document.getElementById("newUsername").value.trim();
-const error=document.getElementById("usernameError");error.textContent="";
+const error=document.getElementById("usernameError");
+error.textContent="";
+
 try{
 const result=await apiRequest("/api/change-username",{username});
 loggedInPlayer=result.player;
 document.getElementById("newUsername").value="";
 updateAccountUI();
 document.getElementById("accountMessage").textContent="Username changed successfully!";
-}catch(e){error.textContent=e.message}
+}catch(e){
+error.textContent=e.message;
+}
 }
 
 async function logout(){
 try{
 await apiRequest("/api/logout",{});
-loggedInPlayer=null;updateAccountUI();show("home");
+loggedInPlayer=null;
+updateAccountUI();
+show("home");
 document.getElementById("accountMessage").textContent="You have logged out.";
-}catch(e){document.getElementById("accountMessage").textContent=e.message}
+}catch(e){
+document.getElementById("accountMessage").textContent=e.message;
 }
+}
+
+
+// GAME FUNCTIONS
 
 function show(id){
 document.querySelectorAll(".screen").forEach(x=>x.classList.remove("active"));
@@ -329,7 +420,8 @@ document.getElementById(id).classList.add("active");
 function updateDiff(){
 let n=+document.getElementById("difficulty").value;
 document.getElementById("diffValue").textContent=n;
-document.getElementById("diffText").textContent=n<=2?"Very Easy":n<=4?"Easy":n<=6?"Normal":n<=8?"Hard":"Expert";
+document.getElementById("diffText").textContent=
+n<=2?"Very Easy":n<=4?"Easy":n<=6?"Normal":n<=8?"Hard":"Expert";
 }
 
 function initial(){
@@ -346,270 +438,552 @@ return [
 }
 
 function startBot(){
-mode="bot";room=null;onlineColor=null;
+mode="bot";
 difficulty=+document.getElementById("difficulty").value;
+
 let c=document.getElementById("colour").value;
 human=c==="random"?(Math.random()<.5?"w":"b"):(c==="white"?"w":"b");
+
 clockInitial=Number(document.getElementById("time").value)*60;
 clockIncrement=0;
+
 beginGame("Bot difficulty "+difficulty+" · You are "+(human==="w"?"White":"Black"));
 }
 
 function beginGame(info,timeSeconds=clockInitial,increment=clockIncrement){
-board=initial();turn="w";selected=null;gameOver=false;history=[];lastMoveText="";
-pendingSnapshot=null;
+board=initial();
+turn="w";
+selected=null;
+gameOver=false;
+history=[];
+lastMoveText="";
 castleRights={wK:true,wQ:true,bK:true,bQ:true};
-clockInitial=timeSeconds;clockIncrement=increment;
-clocks={w:timeSeconds,b:timeSeconds};clockActive="w";
-clockStarted=false;clockLast=0;
+
+clockInitial=timeSeconds;
+clockIncrement=increment;
+clocks={w:timeSeconds,b:timeSeconds};
+clockActive="w";
+clockStarted=false;
+clockLast=0;
+
 if(clockTimer)clearInterval(clockTimer);
+
 document.getElementById("gameInfo").textContent=info;
 document.getElementById("lastMove").textContent="";
-show("game");render();updateClockDisplay();updateStatus();
+
+show("game");
+render();
+updateClockDisplay();
+updateStatus();
+
 if(mode==="bot"&&human==="b")setTimeout(botMove,500);
 }
 
 function formatClock(value){
-if(clockInitial===0)return "∞";
+if(value===0&&clockInitial===0)return "∞";
 let s=Math.max(0,Math.ceil(value));
 return String(Math.floor(s/60)).padStart(2,"0")+":"+String(s%60).padStart(2,"0");
 }
+
 function updateClockDisplay(){
 document.getElementById("whiteClock").textContent=formatClock(clocks.w);
 document.getElementById("blackClock").textContent=formatClock(clocks.b);
 }
+
 function startLocalClock(){
 if(clockInitial===0||clockStarted)return;
-clockStarted=true;clockActive=turn;clockLast=Date.now();
+clockStarted=true;
+clockActive=turn;
+clockLast=Date.now();
+
 if(clockTimer)clearInterval(clockTimer);
+
 clockTimer=setInterval(()=>{
 if(gameOver||!clockStarted)return;
-let now=Date.now(),elapsed=(now-clockLast)/1000;clockLast=now;
+
+let now=Date.now();
+let elapsed=(now-clockLast)/1000;
+clockLast=now;
+
 clocks[clockActive]=Math.max(0,clocks[clockActive]-elapsed);
 updateClockDisplay();
+
 if(clocks[clockActive]<=0){
-gameOver=true;clearInterval(clockTimer);
-document.getElementById("status").textContent=(clockActive==="w"?"White":"Black")+" ran out of time. "+(clockActive==="w"?"Black":"White")+" wins!";
+gameOver=true;
+clearInterval(clockTimer);
+document.getElementById("status").textContent=
+(clockActive==="w"?"White":"Black")+" ran out of time. "+
+(clockActive==="w"?"Black":"White")+" wins!";
 }
 },100);
 }
+
 function switchLocalClock(mover){
 if(clockInitial===0)return;
-if(!clockStarted){startLocalClock();return}
-clocks[mover]+=clockIncrement;clockActive=turn;clockLast=Date.now();updateClockDisplay();
+
+if(!clockStarted){
+startLocalClock();
+return;
 }
 
-function colorOf(p){return !p?"":p===p.toUpperCase()?"w":"b"}
-function inside(r,c){return r>=0&&r<8&&c>=0&&c<8}
-function copyBoard(b){return b.map(row=>row.slice())}
+clocks[mover]+=clockIncrement;
+clockActive=turn;
+clockLast=Date.now();
+updateClockDisplay();
+}
+
+function colorOf(p){
+return !p?"":p===p.toUpperCase()?"w":"b";
+}
+
+function inside(r,c){
+return r>=0&&r<8&&c>=0&&c<8;
+}
+
+function copyBoard(b){
+return b.map(row=>row.slice());
+}
+
+function findKing(b,color){
+let k=color==="w"?"K":"k";
+for(let r=0;r<8;r++)
+for(let c=0;c<8;c++)
+if(b[r][c]===k)return [r,c];
+return null;
+}
+
+function attacked(b,r,c,by){
+const pawnDir=by==="w"?-1:1;
+const pawn=by==="w"?"P":"p";
+
+for(let dc of [-1,1]){
+let rr=r-pawnDir,cc=c-dc;
+if(inside(rr,cc)&&b[rr][cc]===pawn)return true;
+}
+
+const knight=by==="w"?"N":"n";
+
+for(let [dr,dc] of [
+[-2,-1],[-2,1],[-1,-2],[-1,2],
+[1,-2],[1,2],[2,-1],[2,1]
+]){
+let rr=r+dr,cc=c+dc;
+if(inside(rr,cc)&&b[rr][cc]===knight)return true;
+}
+
+const king=by==="w"?"K":"k";
+
+for(let dr=-1;dr<=1;dr++)
+for(let dc=-1;dc<=1;dc++){
+if(!dr&&!dc)continue;
+let rr=r+dr,cc=c+dc;
+if(inside(rr,cc)&&b[rr][cc]===king)return true;
+}
+
+const rays=[
+[-1,0],[1,0],[0,-1],[0,1],
+[-1,-1],[-1,1],[1,-1],[1,1]
+];
+
+for(let i=0;i<rays.length;i++){
+let [dr,dc]=rays[i];
+let rr=r+dr,cc=c+dc,step=1;
+
+while(inside(rr,cc)){
+let p=b[rr][cc];
+
+if(p){
+let q=p.toLowerCase();
+
+if(colorOf(p)===by&&(
+q==="q"||
+(i<4&&q==="r")||
+(i>=4&&q==="b")||
+(step===1&&q==="k")
+))return true;
+
+break;
+}
+
+rr+=dr;
+cc+=dc;
+step++;
+}
+}
+
+return false;
+}
 
 function pseudoMoves(b,r,c){
 let p=b[r][c],color=colorOf(p),type=p.toLowerCase(),out=[];
+
 const add=(rr,cc)=>{
 if(!inside(rr,cc))return false;
+
 let dest=b[rr][cc];
 if(colorOf(dest)===color)return false;
-out.push({fr:r,fc:c,tr:rr,tc:cc,piece:p,capture:dest});
+
+out.push({
+fr:r,fc:c,tr:rr,tc:cc,piece:p,capture:dest
+});
+
 return !dest;
 };
+
 if(type==="p"){
 let d=color==="w"?-1:1;
+
 if(inside(r+d,c)&&!b[r+d][c]){
 add(r+d,c);
+
 let start=color==="w"?6:1;
 if(r===start&&!b[r+2*d][c])add(r+2*d,c);
 }
+
 for(let dc of [-1,1]){
-if(inside(r+d,c+dc)&&b[r+d][c+dc]&&colorOf(b[r+d][c+dc])!==color)add(r+d,c+dc);
+if(inside(r+d,c+dc)&&b[r+d][c+dc]&&colorOf(b[r+d][c+dc])!==color)
+add(r+d,c+dc);
 }
-}else if(type==="n"){
-for(let [dr,dc] of [[-2,-1],[-2,1],[-1,-2],[-1,2],[1,-2],[1,2],[2,-1],[2,1]])add(r+dr,c+dc);
-}else{
+}
+
+else if(type==="n"){
+for(let [dr,dc] of [
+[-2,-1],[-2,1],[-1,-2],[-1,2],
+[1,-2],[1,2],[2,-1],[2,1]
+])add(r+dr,c+dc);
+}
+
+else{
 let dirs=[];
-if(type==="b"||type==="q")dirs.push([-1,-1],[-1,1],[1,-1],[1,1]);
-if(type==="r"||type==="q")dirs.push([-1,0],[1,0],[0,-1],[0,1]);
-if(type==="k")dirs=[[-1,-1],[-1,0],[-1,1],[0,-1],[0,1],[1,-1],[1,0],[1,1]];
+
+if(type==="b"||type==="q")
+dirs.push([-1,-1],[-1,1],[1,-1],[1,1]);
+
+if(type==="r"||type==="q")
+dirs.push([-1,0],[1,0],[0,-1],[0,1]);
+
+if(type==="k")
+dirs=[[-1,-1],[-1,0],[-1,1],[0,-1],[0,1],[1,-1],[1,0],[1,1]];
+
 for(let [dr,dc] of dirs){
 let rr=r+dr,cc=c+dc;
+
 while(inside(rr,cc)){
 let empty=add(rr,cc);
 if(type==="k"||!empty)break;
-rr+=dr;cc+=dc;
+rr+=dr;
+cc+=dc;
 }
 }
+
 if(type==="k"){
 let home=color==="w"?7:0;
-if(r===home&&c===4&&castleRights[color+"K"]&&b[home][7]===(color==="w"?"R":"r")&&!b[home][5]&&!b[home][6])
+let kingKey=color+"K";
+let queenKey=color+"Q";
+
+if(r===home&&c===4&&castleRights[kingKey]&&
+b[home][7]===(color==="w"?"R":"r")&&
+!b[home][5]&&!b[home][6]){
 out.push({fr:r,fc:c,tr:home,tc:6,piece:p,capture:"",castle:"K"});
-if(r===home&&c===4&&castleRights[color+"Q"]&&b[home][0]===(color==="w"?"R":"r")&&!b[home][1]&&!b[home][2]&&!b[home][3])
+}
+
+if(r===home&&c===4&&castleRights[queenKey]&&
+b[home][0]===(color==="w"?"R":"r")&&
+!b[home][1]&&!b[home][2]&&!b[home][3]){
 out.push({fr:r,fc:c,tr:home,tc:2,piece:p,capture:"",castle:"Q"});
 }
 }
+}
+
 return out;
 }
-
-function legalMovesFrom(b,r,c){if(!b[r][c])return [];return pseudoMoves(b,r,c)}
-function allLegal(color){
-let out=[];
-for(let r=0;r<8;r++)for(let c=0;c<8;c++)if(colorOf(board[r][c])===color)out.push(...legalMovesFrom(board,r,c));
-return out;
-}
-function same(a,b){return a.fr===b.fr&&a.fc===b.fc&&a.tr===b.tr&&a.tc===b.tc}
-
-function chooseSlip(intended,all){
-let piece=board[intended.fr][intended.fc],type=piece.toLowerCase();
-if(all.length<=1)return intended;
-let candidates;
-if(type==="n"){
-let direction=Math.sign(intended.tr-intended.fr);
-candidates=all.filter(m=>Math.sign(m.tr-m.fr)===direction);
-}else{
-candidates=all.filter(m=>Math.max(Math.abs(m.tr-intended.tr),Math.abs(m.tc-intended.tc))<=1);
-}
-let alternatives=candidates.filter(m=>!same(m,intended));
-if(!alternatives.length)return intended;
-return alternatives[Math.floor(Math.random()*alternatives.length)];
-}
-
-function coord(m){return "abcdefgh"[m.fc]+(8-m.fr)+" → "+"abcdefgh"[m.tc]+(8-m.tr)}
 
 function applyRaw(b,m,promotion){
-let n=copyBoard(b),p=n[m.fr][m.fc],color=colorOf(p);
-n[m.fr][m.fc]="";n[m.tr][m.tc]=p;
+let n=copyBoard(b);
+let p=n[m.fr][m.fc];
+let color=colorOf(p);
+
+n[m.fr][m.fc]="";
+n[m.tr][m.tc]=p;
+
 if(m.castle||(p.toLowerCase()==="k"&&m.fr===m.tr&&Math.abs(m.tc-m.fc)===2)){
-let home=m.fr,kingSide=m.tc===6,rookFrom=kingSide?7:0,rookTo=kingSide?5:3;
-n[home][rookTo]=n[home][rookFrom];n[home][rookFrom]="";
+let home=m.fr;
+let kingSide=m.tc===6;
+let rookFrom=kingSide?7:0;
+let rookTo=kingSide?5:3;
+n[home][rookTo]=n[home][rookFrom];
+n[home][rookFrom]="";
 }
+
 if((p==="P"&&m.tr===0)||(p==="p"&&m.tr===7)){
-let choices=color==="w"?["Q","R","B","N"]:["q","r","b","n"];
-n[m.tr][m.tc]=promotion||choices[Math.floor(Math.random()*choices.length)];
+let chosen=promotion||(color==="w"?["R","B","N"]:["r","b","n"])[Math.floor(Math.random()*3)];
+n[m.tr][m.tc]=chosen;
 }
+
 return n;
 }
 
 function updateCastleRights(m,moving,captured){
 if(moving==="K"){castleRights.wK=false;castleRights.wQ=false}
 if(moving==="k"){castleRights.bK=false;castleRights.bQ=false}
+
 if(moving==="R"&&m.fr===7&&m.fc===7)castleRights.wK=false;
 if(moving==="R"&&m.fr===7&&m.fc===0)castleRights.wQ=false;
 if(moving==="r"&&m.fr===0&&m.fc===7)castleRights.bK=false;
 if(moving==="r"&&m.fr===0&&m.fc===0)castleRights.bQ=false;
+
 if(captured==="R"&&m.tr===7&&m.tc===7)castleRights.wK=false;
 if(captured==="R"&&m.tr===7&&m.tc===0)castleRights.wQ=false;
 if(captured==="r"&&m.tr===0&&m.tc===7)castleRights.bK=false;
 if(captured==="r"&&m.tr===0&&m.tc===0)castleRights.bQ=false;
 }
 
-function snapshotGame(){
-return {
-board:copyBoard(board),turn,castleRights:{...castleRights},
-lastMoveText,clocks:{...clocks},clockActive
-};
+function legalMovesFrom(b,r,c){
+if(!b[r][c])return [];
+return pseudoMoves(b,r,c);
 }
-function restoreSnapshot(s){
-if(!s)return;
-board=s.board;turn=s.turn;castleRights=s.castleRights;
-lastMoveText=s.lastMoveText;clocks=s.clocks;clockActive=s.clockActive;
-pendingSnapshot=null;render();updateClockDisplay();updateStatus();
+
+function allLegal(color){
+let out=[];
+for(let r=0;r<8;r++)
+for(let c=0;c<8;c++)
+if(colorOf(board[r][c])===color)
+out.push(...legalMovesFrom(board,r,c));
+return out;
+}
+
+function same(a,b){
+return a.fr===b.fr&&a.fc===b.fc&&a.tr===b.tr&&a.tc===b.tc;
+}
+
+function chooseSlip(intended,all){
+let piece=board[intended.fr][intended.fc];
+let type=piece.toLowerCase();
+
+if(all.length<=1)return intended;
+
+let candidates;
+
+if(type==="n"){
+let intendedRank=Math.sign(intended.tr-intended.fr);
+candidates=all.filter(m=>Math.sign(m.tr-m.fr)===intendedRank);
+}else{
+candidates=all.filter(m=>
+Math.max(
+Math.abs(m.tr-intended.tr),
+Math.abs(m.tc-intended.tc)
+)<=1
+);
+}
+
+let alternatives=candidates.filter(m=>!same(m,intended));
+if(alternatives.length===0)return intended;
+
+return alternatives[Math.floor(Math.random()*alternatives.length)];
+}
+
+function coord(m){
+return "abcdefgh"[m.fc]+(8-m.fr)+" → "+"abcdefgh"[m.tc]+(8-m.tr);
 }
 
 function performMove(m,send=true){
 if(gameOver)return;
-let mover=turn,actual=m,all=legalMovesFrom(board,m.fr,m.fc);
-if(mode!=="online"||mover===onlineColor)actual=chooseSlip(m,all);
-let moving=board[actual.fr][actual.fc],captured=board[actual.tr][actual.tc];
+
+let mover=turn;
+let actual=m;
+let all=legalMovesFrom(board,m.fr,m.fc);
+
+if(mode!=="online"||mover===onlineColor)
+actual=chooseSlip(m,all);
+
+let moving=board[actual.fr][actual.fc];
+let captured=board[actual.tr][actual.tc];
 let promotion=null;
+
 if((moving==="P"&&actual.tr===0)||(moving==="p"&&actual.tr===7)){
-let choices=moving==="P"?["Q","R","B","N"]:["q","r","b","n"];
+let choices=moving==="P"?["R","B","N"]:["r","b","n"];
 promotion=choices[Math.floor(Math.random()*choices.length)];
 }
-if(mode==="online"&&send)pendingSnapshot=snapshotGame();
+
 updateCastleRights(actual,moving,captured);
 board=applyRaw(board,actual,promotion);
 turn=turn==="w"?"b":"w";
-selected=null;legalForSelected=[];
+selected=null;
+legalForSelected=[];
+
 if(mode!=="online")switchLocalClock(mover);
-lastMoveText=(mover==="w"?"White":"Black")+" intended "+coord(m)+"; actual "+coord(actual)+(promotion?" · promoted to "+promotion.toUpperCase():"");
+
+lastMoveText=(mover==="w"?"White":"Black")+
+" intended "+coord(m)+"; actual "+coord(actual)+
+(promotion?" · promoted to "+promotion.toUpperCase():"");
+
 document.getElementById("lastMove").textContent=lastMoveText;
+
 if(captured==="k"||captured==="K"){
 gameOver=true;
 if(clockTimer)clearInterval(clockTimer);
-document.getElementById("status").textContent=(mover==="w"?"White":"Black")+" wins by capturing the king!";
-}else updateStatus();
+document.getElementById("status").textContent=
+mode==="online"
+? "You win by capturing the king!"
+: (mover==="w"?"White":"Black")+" wins by capturing the king!";
+}else{
+updateStatus();
+}
 
 if(mode==="online"&&send&&socket){
-socket.emit("online_move",{room,move:{fr:actual.fr,fc:actual.fc,tr:actual.tr,tc:actual.tc,promotion}});
+socket.emit("online_move",{
+room,
+move:{
+fr:actual.fr,fc:actual.fc,
+tr:actual.tr,tc:actual.tc,
+promotion
 }
+});
+}
+
 render();
-if(mode==="bot"&&!gameOver&&turn!==human)setTimeout(botMove,450);
+
+if(mode==="bot"&&!gameOver&&turn!==human)
+setTimeout(botMove,450);
 }
 
 function onSquare(r,c){
 if(gameOver)return;
 if(mode==="online"&&turn!==onlineColor)return;
 if(mode==="bot"&&turn!==human)return;
+
 let p=board[r][c];
+
 if(selected){
 let m=legalForSelected.find(x=>x.tr===r&&x.tc===c);
-if(m){performMove(m);return}
+if(m){
+performMove(m);
+return;
 }
-if(p&&colorOf(p)===turn){selected={r,c};legalForSelected=legalMovesFrom(board,r,c);render();return}
-selected=null;legalForSelected=[];render();
+}
+
+if(p&&colorOf(p)===turn){
+selected={r,c};
+legalForSelected=legalMovesFrom(board,r,c);
+render();
+return;
+}
+
+selected=null;
+legalForSelected=[];
+render();
 }
 
 function render(){
-let el=document.getElementById("board");el.innerHTML="";
-for(let vr=0;vr<8;vr++)for(let vc=0;vc<8;vc++){
-let r=vr,c=vc;
-if(mode==="online"&&onlineColor==="b"){r=7-vr;c=7-vc}
-else if(mode!=="online"&&human==="b"){r=7-vr;c=7-vc}
+let el=document.getElementById("board");
+el.innerHTML="";
+
+for(let vr=0;vr<8;vr++)
+for(let vc=0;vc<8;vc++){
+let r=human==="b"&&mode!=="online"?7-vr:vr;
+let c=human==="b"&&mode!=="online"?7-vc:vc;
+
+if(mode==="online"&&onlineColor==="b"){
+r=7-vr;
+c=7-vc;
+}
+
 let s=document.createElement("div");
 s.className="sq "+((vr+vc)%2===0?"light":"dark");
+
 if(selected&&selected.r===r&&selected.c===c)s.classList.add("sel");
-if(legalForSelected.some(m=>m.tr===r&&m.tc===c))s.classList.add(board[r][c]?"capture":"target");
+
+if(legalForSelected.some(m=>m.tr===r&&m.tc===c))
+s.classList.add(board[r][c]?"capture":"target");
+
 let p=board[r][c];
-if(p){s.textContent=GLYPH[p];s.classList.add(colorOf(p)==="w"?"whitepiece":"blackpiece")}
-s.onclick=()=>onSquare(r,c);el.appendChild(s);
+
+if(p){
+s.textContent=GLYPH[p];
+s.classList.add(colorOf(p)==="w"?"whitepiece":"blackpiece");
+}
+
+s.onclick=()=>onSquare(r,c);
+el.appendChild(s);
 }
 }
 
 function updateStatus(){
 let moves=allLegal(turn);
-document.getElementById("status").textContent=(turn==="w"?"White":"Black")+" to move"+(moves.length===0?" · No legal moves":"");
+document.getElementById("status").textContent=
+(turn==="w"?"White":"Black")+" to move"+
+(moves.length===0?" · No legal moves":"");
 }
 
 function botMove(){
 if(gameOver||mode!=="bot"||turn===human)return;
+
 let moves=allLegal(turn);
-if(!moves.length){gameOver=true;document.getElementById("status").textContent="No legal moves. Game over.";return}
-let scored=moves.map(m=>({m,score:(m.capture?10:0)+(m.capture&&m.capture.toLowerCase()==="q"?8:0)+(m.tr===0||m.tr===7?3:0)+Math.random()*(11-difficulty)}));
+
+if(!moves.length){
+gameOver=true;
+document.getElementById("status").textContent="No legal moves. Game over.";
+return;
+}
+
+let scored=moves.map(m=>({
+m,
+score:(m.capture?10:0)+
+(m.capture&&m.capture.toLowerCase()==="q"?8:0)+
+(m.tr===0||m.tr===7?3:0)+
+Math.random()*(11-difficulty)
+}));
+
 scored.sort((a,b)=>b.score-a.score);
 let pool=scored.slice(0,Math.max(1,11-difficulty));
-performMove(pool[Math.floor(Math.random()*pool.length)].m,false);
+let chosen=pool[Math.floor(Math.random()*pool.length)].m;
+performMove(chosen,false);
 }
 
 function resetGame(){
 if(mode==="online"){
-document.getElementById("status").textContent="Online game cannot be reset. Leave the match to return to the menu.";
+document.getElementById("status").textContent=
+"Online game cannot be reset unilaterally. Return to menu to leave.";
 return;
 }
-beginGame("Bot difficulty "+difficulty+" · You are "+(human==="w"?"White":"Black"));
+
+beginGame(
+mode==="bot"?
+"Bot difficulty "+difficulty+" · You are "+(human==="w"?"White":"Black"):
+"Local game"
+);
 }
 
 function resign(){
-if(gameOver)return;
-gameOver=true;
-if(clockTimer)clearInterval(clockTimer);
-if(mode==="online"&&socket)socket.emit("online_resign",{room});
-document.getElementById("status").textContent=(turn==="w"?"White":"Black")+" resigned.";
+    if(gameOver)return;
+
+    gameOver=true;
+    if(clockTimer)clearInterval(clockTimer);
+
+    if(mode==="online"){
+        document.getElementById("status").textContent =
+            "You resigned. You lose!";
+        if(socket)socket.emit("online_resign",{room});
+    }else{
+        document.getElementById("status").textContent =
+            (turn==="w"?"White":"Black")+" resigned.";
+    }
 }
 
 function selectedOnlineSettings(){
-return {seconds:Number(document.getElementById("onlineTime").value),increment:Number(document.getElementById("onlineIncrement").value)};
+return {
+seconds:Number(document.getElementById("onlineTime").value),
+increment:Number(document.getElementById("onlineIncrement").value)
+};
 }
 
 function findOpponent(){
-if(!socket){document.getElementById("onlineStatus").textContent="Connection unavailable.";return}
+if(!socket){
+document.getElementById("onlineStatus").textContent=
+"Connection unavailable. Start the Flask server first.";
+return;
+}
+
 searching=true;
 document.getElementById("privateCreate").style.display="none";
 document.getElementById("privateJoin").style.display="none";
@@ -618,7 +992,12 @@ socket.emit("find_match",selectedOnlineSettings());
 }
 
 function createPrivateLobby(){
-if(!socket){document.getElementById("onlineStatus").textContent="Connection unavailable.";return}
+if(!socket){
+document.getElementById("onlineStatus").textContent=
+"Connection unavailable. Start the Flask server first.";
+return;
+}
+
 document.getElementById("privateCreate").style.display="block";
 document.getElementById("privateJoin").style.display="none";
 document.getElementById("onlineStatus").textContent="Creating your lobby...";
@@ -628,114 +1007,153 @@ socket.emit("create_private_lobby",selectedOnlineSettings());
 function showJoinLobby(){
 document.getElementById("privateJoin").style.display="block";
 document.getElementById("privateCreate").style.display="none";
-document.getElementById("onlineStatus").textContent="Enter the code your opponent shared with you.";
+document.getElementById("onlineStatus").textContent=
+"Enter the code your opponent shared with you.";
 }
 
 function joinPrivateLobby(){
 let code=document.getElementById("joinCode").value.trim().toUpperCase();
-if(code.length!==6){document.getElementById("onlineStatus").textContent="Please enter the 6-character code.";return}
-if(!socket){document.getElementById("onlineStatus").textContent="Connection unavailable.";return}
+
+if(code.length!==6){
+document.getElementById("onlineStatus").textContent=
+"Please enter the 6-character code.";
+return;
+}
+
+if(!socket){
+document.getElementById("onlineStatus").textContent="Connection unavailable.";
+return;
+}
+
 socket.emit("join_private_lobby",{code});
 }
 
 function cancelSearch(){
 searching=false;
 if(socket)socket.emit("cancel_match");
-document.getElementById("onlineStatus").textContent="Search cancelled or lobby left.";
-}
-
-function leaveGame(){
-if(mode==="online"&&socket&&!gameOver)socket.emit("online_resign",{room});
-gameOver=true;
-if(clockTimer)clearInterval(clockTimer);
-room=null;pendingSnapshot=null;
-show("home");
+document.getElementById("onlineStatus").textContent=
+"Search cancelled or lobby left.";
 }
 
 if(socket){
+
 socket.on("searching",d=>{
 document.getElementById("onlineStatus").textContent=d.message;
 });
-socket.on("match_error",d=>{
-searching=false;
-document.getElementById("onlineStatus").textContent=d.message;
-});
+
 socket.on("private_lobby_created",d=>{
 room=d.room;
 document.getElementById("lobbyCode").textContent=d.room;
-document.getElementById("onlineStatus").textContent="Lobby created. Waiting for opponent...";
+document.getElementById("onlineStatus").textContent=
+"Lobby created. Waiting for opponent...";
 });
+
 socket.on("private_lobby_error",d=>{
 document.getElementById("onlineStatus").textContent=d.message;
 });
+
 socket.on("match_found",d=>{
-room=d.room;onlineColor=d.color;human=onlineColor;mode="online";searching=false;
+room=d.room;
+onlineColor=d.color;
+human=onlineColor;
+mode="online";
+searching=false;
+
 document.getElementById("privateCreate").style.display="none";
 document.getElementById("privateJoin").style.display="none";
-beginGame("Online match · You are "+(onlineColor==="w"?"White":"Black"),d.seconds,d.increment);
+
+beginGame(
+"Online match · You are "+(onlineColor==="w"?"White":"Black"),
+d.seconds,
+d.increment
+);
+
 document.getElementById("onlineStatus").textContent="Opponent connected!";
 });
-socket.on("match_cancelled",()=>{searching=false});
 
-socket.on("move_rejected",d=>{
-restoreSnapshot(pendingSnapshot);
-pendingSnapshot=null;
-document.getElementById("status").textContent=d.message||"Move rejected. Try again.";
+socket.on("match_cancelled",()=>{
+searching=false;
 });
 
 socket.on("opponent_move",m=>{
 if(!m||gameOver)return;
-pendingSnapshot=null;
-let captured=board[m.tr][m.tc],moving=board[m.fr][m.fc];
+
+let captured=board[m.tr][m.tc];
+let moving=board[m.fr][m.fc];
+
 updateCastleRights(m,moving,captured);
 board=applyRaw(board,m,m.promotion);
 turn=turn==="w"?"b":"w";
+
 lastMoveText="Opponent moved.";
 document.getElementById("lastMove").textContent=lastMoveText;
+
 if(captured==="k"||captured==="K"){
 gameOver=true;
-document.getElementById("status").textContent="You lost: your king was captured.";
-}else updateStatus();
-render();
-});
-
-socket.on("king_captured",d=>{
-gameOver=true;pendingSnapshot=null;
 if(clockTimer)clearInterval(clockTimer);
-document.getElementById("status").textContent=d.winner===onlineColor?"You win by capturing the king!":"You lost: your king was captured.";
-});
-
-socket.on("rating_updated",player=>{
-if(loggedInPlayer&&player.id===loggedInPlayer.id){
-loggedInPlayer=player;updateAccountUI();
-document.getElementById("status").textContent+=" · Rating: "+player.rating;
+document.getElementById("status").textContent=
+"You lost: your king was captured.";
+}else{
+updateStatus();
 }
+
+render();
 });
 
 socket.on("clock_tick",d=>{
 if(mode!=="online"||gameOver)return;
-clockActive=d.active;clocks[d.active]=d.remaining;updateClockDisplay();
+clockActive=d.active;
+clocks[d.active]=d.remaining;
+updateClockDisplay();
 });
+
 socket.on("clock_update",d=>{
 if(mode!=="online"||gameOver)return;
-clocks=d.clocks;clockActive=d.active;clockIncrement=d.increment;updateClockDisplay();
+clocks=d.clocks;
+clockActive=d.active;
+clockIncrement=d.increment;
+updateClockDisplay();
 });
+
 socket.on("clock_flag",d=>{
-if(gameOver)return;
-gameOver=true;pendingSnapshot=null;
-if(clockTimer)clearInterval(clockTimer);
-document.getElementById("status").textContent=(d.loser==="w"?"White":"Black")+" ran out of time. "+(d.loser==="w"?"Black":"White")+" wins!";
+    if(gameOver)return;
+    gameOver=true;
+    if(clockTimer)clearInterval(clockTimer);
+
+    const iLost = d.loser === onlineColor;
+    document.getElementById("status").textContent = iLost
+        ? "You ran out of time. You lose!"
+        : "Your opponent ran out of time. You win!";
 });
+
 socket.on("opponent_resigned",()=>{
-gameOver=true;pendingSnapshot=null;
-document.getElementById("status").textContent="Your opponent resigned. You win!";
+    if(gameOver)return;
+    gameOver=true;
+    if(clockTimer)clearInterval(clockTimer);
+    document.getElementById("status").textContent =
+        "Your opponent resigned. You win!";
 });
+
 socket.on("opponent_disconnected",()=>{
-gameOver=true;pendingSnapshot=null;
-document.getElementById("status").textContent="Your opponent disconnected. This match will not change your rating.";
+    if(gameOver)return;
+    gameOver=true;
+    if(clockTimer)clearInterval(clockTimer);
+    document.getElementById("status").textContent =
+        "Your opponent disconnected. You win!";
 });
+
+socket.on("disconnect",()=>{
+    if(mode!=="online"||gameOver)return;
+    gameOver=true;
+    if(clockTimer)clearInterval(clockTimer);
+    document.getElementById("status").textContent =
+        "Connection lost. You lose!";
+});
+
 }
 
+
+// Check whether the player is already logged in when the page opens.
 refreshAccount();
 </script>
 </body>
