@@ -1,10 +1,10 @@
-
 import os
-import re
 import time
 import secrets
 import string
+import re
 import logging
+import threading
 
 from flask import Flask, render_template, request, jsonify, session
 from flask_socketio import SocketIO, emit, join_room
@@ -26,12 +26,18 @@ supabase = create_client(
     os.environ["SUPABASE_SECRET_KEY"]
 )
 
+lock = threading.RLock()
 rooms = {}
 sid_room = {}
 waiting_players = []
 
+PIECES = {
+    "w": "PNBRQK",
+    "b": "pnbrqk"
+}
 
-# ---------------- ACCOUNT FUNCTIONS ----------------
+
+# -------------------- ACCOUNTS --------------------
 
 def get_player_by_username(username):
     result = (
@@ -44,9 +50,12 @@ def get_player_by_username(username):
 
 
 def get_player_by_id(player_id):
+    if not player_id:
+        return None
+
     result = (
         supabase.table("players")
-        .select("id,username,rating")
+        .select("id, username, rating")
         .eq("id", player_id)
         .execute()
     )
@@ -54,8 +63,7 @@ def get_player_by_id(player_id):
 
 
 def current_player():
-    player_id = session.get("player_id")
-    return get_player_by_id(player_id) if player_id else None
+    return get_player_by_id(session.get("player_id"))
 
 
 def valid_username(username):
@@ -84,7 +92,7 @@ def home():
 def register():
     try:
         data = request.get_json(silent=True) or {}
-        username = str(data.get("username", "")).strip()
+        username = str(data.get("username", "")).strip().lower()
         password = str(data.get("password", ""))
 
         if not valid_username(username):
@@ -92,12 +100,10 @@ def register():
                 "error": "Username must be 3–16 characters and use only letters, numbers or underscores."
             }), 400
 
-        if not 8 <= len(password) <= 128:
+        if len(password) < 8 or len(password) > 128:
             return jsonify({
                 "error": "Password must be between 8 and 128 characters."
             }), 400
-
-        username = username.lower()
 
         if get_player_by_username(username):
             return jsonify({"error": "That username is already taken."}), 409
@@ -182,14 +188,13 @@ def change_username():
             return jsonify({"error": "You must be logged in."}), 401
 
         data = request.get_json(silent=True) or {}
-        username = str(data.get("username", "")).strip()
+        username = str(data.get("username", "")).strip().lower()
 
         if not valid_username(username):
             return jsonify({
                 "error": "Username must be 3–16 characters and use only letters, numbers or underscores."
             }), 400
 
-        username = username.lower()
         existing = get_player_by_username(username)
 
         if existing and existing["id"] != player["id"]:
@@ -202,6 +207,9 @@ def change_username():
             .execute()
         )
 
+        if not result.data:
+            raise Exception("Username was not updated.")
+
         return jsonify({
             "success": True,
             "player": account_response(result.data[0])
@@ -211,7 +219,7 @@ def change_username():
         return database_error("changing username")
 
 
-# ---------------- CHESS BOARD ----------------
+# -------------------- CHESS SERVER --------------------
 
 def initial_board():
     return [
@@ -227,7 +235,7 @@ def initial_board():
 
 
 def color_of(piece):
-    if piece == ".":
+    if piece == "." or not piece:
         return None
     return "w" if piece.isupper() else "b"
 
@@ -236,7 +244,111 @@ def inside(r, c):
     return 0 <= r < 8 and 0 <= c < 8
 
 
-def make_moves(board, r, c, rights):
+def room_code():
+    alphabet = string.ascii_uppercase + "23456789"
+    while True:
+        code = "".join(secrets.choice(alphabet) for _ in range(6))
+        if code not in rooms:
+            return code
+
+
+def new_room(white, black, seconds, increment, rated,
+             white_id=None, black_id=None):
+    code = room_code()
+
+    rooms[code] = {
+        "white": white,
+        "black": black,
+        "white_id": white_id,
+        "black_id": black_id,
+        "rated": bool(rated),
+        "board": initial_board(),
+        "rights": {"wK": True, "wQ": True, "bK": True, "bQ": True},
+        "clocks": {"w": int(seconds), "b": int(seconds)},
+        "increment": int(increment),
+        "active": "w",
+        "unlimited": int(seconds) == 0,
+        "last": time.monotonic(),
+        "started": False,
+        "over": False
+    }
+
+    sid_room[white] = code
+    sid_room[black] = code
+    join_room(code, sid=white)
+    join_room(code, sid=black)
+
+    return code
+
+
+def send_match(code):
+    room = rooms[code]
+
+    for side, sid in (("w", room["white"]), ("b", room["black"])):
+        emit("match_found", {
+            "room": code,
+            "color": side,
+            "seconds": room["clocks"][side],
+            "increment": room["increment"],
+            "rated": room["rated"]
+        }, to=sid)
+
+
+def get_side(room, sid):
+    if sid == room["white"]:
+        return "w"
+    if sid == room["black"]:
+        return "b"
+    return None
+
+
+def player_id_for(room, side):
+    return room["white_id"] if side == "w" else room["black_id"]
+
+
+def finish_room(code, winner, reason):
+    room = rooms.get(code)
+
+    if not room or room["over"]:
+        return
+
+    room["over"] = True
+    loser = "b" if winner == "w" else "w"
+    rating_updated = False
+
+    if room["rated"]:
+        white_id = room["white_id"]
+        black_id = room["black_id"]
+        winner_id = player_id_for(room, winner)
+
+        if white_id and black_id and winner_id:
+            try:
+                supabase.rpc("award_match_rating", {
+                    "p_match_id": code,
+                    "p_white": white_id,
+                    "p_black": black_id,
+                    "p_winner": winner_id
+                }).execute()
+                rating_updated = True
+            except Exception:
+                app.logger.exception("Could not award rating for %s", code)
+
+    for side, sid in (("w", room["white"]), ("b", room["black"])):
+        player = get_player_by_id(player_id_for(room, side))
+
+        socketio.emit("match_result", {
+            "winner": winner,
+            "loser": loser,
+            "reason": reason,
+            "rated": room["rated"],
+            "rating_updated": rating_updated,
+            "rating": player["rating"] if player else None
+        }, to=sid)
+
+    socketio.emit("clock_stop", {}, to=code)
+
+
+def pseudo_moves(board, r, c, rights):
     piece = board[r][c]
 
     if piece == ".":
@@ -255,11 +367,7 @@ def make_moves(board, r, c, rights):
         if color_of(target) == color:
             return False
 
-        moves.append({
-            "fr": r, "fc": c,
-            "tr": rr, "tc": cc
-        })
-
+        moves.append((rr, cc))
         return target == "."
 
     if kind == "p":
@@ -274,35 +382,31 @@ def make_moves(board, r, c, rights):
 
         for dc in (-1, 1):
             rr, cc = r + direction, c + dc
-            if inside(rr, cc) and board[rr][cc] != ".":
-                if color_of(board[rr][cc]) != color:
-                    add(rr, cc)
+            if inside(rr, cc) and color_of(board[rr][cc]) not in (None, color):
+                moves.append((rr, cc))
 
     elif kind == "n":
-        for dr, dc in [
+        for dr, dc in (
             (-2, -1), (-2, 1), (-1, -2), (-1, 2),
             (1, -2), (1, 2), (2, -1), (2, 1)
-        ]:
+        ):
             add(r + dr, c + dc)
 
     else:
-        directions = []
-
-        if kind in ("b", "q"):
-            directions += [
-                (-1, -1), (-1, 1), (1, -1), (1, 1)
-            ]
-
-        if kind in ("r", "q"):
-            directions += [
-                (-1, 0), (1, 0), (0, -1), (0, 1)
-            ]
-
         if kind == "k":
             directions = [
                 (-1, -1), (-1, 0), (-1, 1),
                 (0, -1), (0, 1),
                 (1, -1), (1, 0), (1, 1)
+            ]
+        elif kind == "b":
+            directions = [(-1, -1), (-1, 1), (1, -1), (1, 1)]
+        elif kind == "r":
+            directions = [(-1, 0), (1, 0), (0, -1), (0, 1)]
+        else:
+            directions = [
+                (-1, -1), (-1, 0), (-1, 1), (0, -1),
+                (0, 1), (1, -1), (1, 0), (1, 1)
             ]
 
         for dr, dc in directions:
@@ -310,10 +414,8 @@ def make_moves(board, r, c, rights):
 
             while inside(rr, cc):
                 empty = add(rr, cc)
-
                 if kind == "k" or not empty:
                     break
-
                 rr += dr
                 cc += dc
 
@@ -323,334 +425,210 @@ def make_moves(board, r, c, rights):
 
             if r == home and c == 4:
                 if (
-                    rights[color + "K"]
-                    and board[home][7] == rook
-                    and board[home][5] == "."
-                    and board[home][6] == "."
+                    rights[color + "K"] and
+                    board[home][7] == rook and
+                    board[home][5] == "." and
+                    board[home][6] == "."
                 ):
-                    moves.append({
-                        "fr": r, "fc": c,
-                        "tr": home, "tc": 6,
-                        "castle": "K"
-                    })
+                    moves.append((home, 6))
 
                 if (
-                    rights[color + "Q"]
-                    and board[home][0] == rook
-                    and board[home][1] == "."
-                    and board[home][2] == "."
-                    and board[home][3] == "."
+                    rights[color + "Q"] and
+                    board[home][0] == rook and
+                    board[home][1] == "." and
+                    board[home][2] == "." and
+                    board[home][3] == "."
                 ):
-                    moves.append({
-                        "fr": r, "fc": c,
-                        "tr": home, "tc": 2,
-                        "castle": "Q"
-                    })
+                    moves.append((home, 2))
 
     return moves
 
 
-def update_rights(room, move, moving, captured):
+def update_rights(room, fr, fc, tr, tc, moving, captured):
     rights = room["rights"]
 
     if moving == "K":
-        rights["wK"] = False
-        rights["wQ"] = False
-
+        rights["wK"] = rights["wQ"] = False
     if moving == "k":
-        rights["bK"] = False
-        rights["bQ"] = False
+        rights["bK"] = rights["bQ"] = False
 
-    if moving == "R" and move["fr"] == 7 and move["fc"] == 7:
+    if moving == "R" and (fr, fc) == (7, 7):
         rights["wK"] = False
-    if moving == "R" and move["fr"] == 7 and move["fc"] == 0:
+    if moving == "R" and (fr, fc) == (7, 0):
         rights["wQ"] = False
-    if moving == "r" and move["fr"] == 0 and move["fc"] == 7:
+    if moving == "r" and (fr, fc) == (0, 7):
         rights["bK"] = False
-    if moving == "r" and move["fr"] == 0 and move["fc"] == 0:
+    if moving == "r" and (fr, fc) == (0, 0):
         rights["bQ"] = False
 
-    if captured == "R" and move["tr"] == 7 and move["tc"] == 7:
+    if captured == "R" and (tr, tc) == (7, 7):
         rights["wK"] = False
-    if captured == "R" and move["tr"] == 7 and move["tc"] == 0:
+    if captured == "R" and (tr, tc) == (7, 0):
         rights["wQ"] = False
-    if captured == "r" and move["tr"] == 0 and move["tc"] == 7:
+    if captured == "r" and (tr, tc) == (0, 7):
         rights["bK"] = False
-    if captured == "r" and move["tr"] == 0 and move["tc"] == 0:
+    if captured == "r" and (tr, tc) == (0, 0):
         rights["bQ"] = False
 
 
-def apply_move(room, move):
+def apply_server_move(room, move):
+    try:
+        fr, fc = int(move["fr"]), int(move["fc"])
+        tr, tc = int(move["tr"]), int(move["tc"])
+    except (KeyError, TypeError, ValueError):
+        return False, False
+
+    if not all(inside(r, c) for r, c in ((fr, fc), (tr, tc))):
+        return False, False
+
     board = room["board"]
-    fr, fc = move["fr"], move["fc"]
-    tr, tc = move["tr"], move["tc"]
-
     moving = board[fr][fc]
     captured = board[tr][tc]
+    side = room["active"]
 
-    update_rights(room, move, moving, captured)
+    if moving == "." or color_of(moving) != side:
+        return False, False
 
-    board[fr][fc] = "."
-    board[tr][tc] = moving
-
-    if moving.lower() == "k" and fr == tr and abs(tc - fc) == 2:
-        if tc == 6:
-            board[fr][5] = board[fr][7]
-            board[fr][7] = "."
-        else:
-            board[fr][3] = board[fr][0]
-            board[fr][0] = "."
+    if (tr, tc) not in pseudo_moves(board, fr, fc, room["rights"]):
+        return False, False
 
     promotion = move.get("promotion")
-
     if moving == "P" and tr == 0:
         if promotion not in ("Q", "R", "B", "N"):
-            promotion = "Q"
-        board[tr][tc] = promotion
-
+            return False, False
     elif moving == "p" and tr == 7:
         if promotion not in ("q", "r", "b", "n"):
-            promotion = "q"
-        board[tr][tc] = promotion
+            return False, False
+    else:
+        promotion = None
 
-    return captured
+    update_rights(room, fr, fc, tr, tc, moving, captured)
 
+    board[fr][fc] = "."
+    board[tr][tc] = promotion or moving
 
-# ---------------- ROOM HELPERS ----------------
+    if moving.lower() == "k" and fr == tr and abs(tc - fc) == 2:
+        home = fr
+        if tc == 6:
+            board[home][5] = board[home][7]
+            board[home][7] = "."
+        else:
+            board[home][3] = board[home][0]
+            board[home][0] = "."
 
-def make_room_code():
-    alphabet = string.ascii_uppercase + "23456789"
-
-    while True:
-        code = "".join(secrets.choice(alphabet) for _ in range(6))
-        if code not in rooms:
-            return code
-
-
-def new_room(white, black, seconds, increment=0, rated=False):
-    code = make_room_code()
-
-    rooms[code] = {
-        "white": white,
-        "black": black,
-        "clocks": {"w": int(seconds), "b": int(seconds)},
-        "increment": int(increment),
-        "active": "w",
-        "unlimited": int(seconds) == 0,
-        "last": time.monotonic(),
-        "started": False,
-        "over": False,
-        "rated": rated,
-        "board": initial_board(),
-        "rights": {
-            "wK": True, "wQ": True,
-            "bK": True, "bQ": True
-        },
-        "turn": "w",
-        "players": {
-            "w": white["player_id"],
-            "b": black["player_id"]
-        }
-    }
-
-    sid_room[white["sid"]] = code
-    sid_room[black["sid"]] = code
-
-    join_room(code, sid=white["sid"])
-    join_room(code, sid=black["sid"])
-
-    return code
+    king_captured = captured in ("K", "k")
+    return True, king_captured
 
 
-def emit_match(code):
-    room = rooms[code]
-
-    emit("match_found", {
-        "room": code,
-        "color": "w",
-        "seconds": room["clocks"]["w"],
-        "increment": room["increment"]
-    }, to=room["white"]["sid"])
-
-    emit("match_found", {
-        "room": code,
-        "color": "b",
-        "seconds": room["clocks"]["b"],
-        "increment": room["increment"]
-    }, to=room["black"]["sid"])
-
-
-def award_rating(code, winner_side):
-    room = rooms.get(code)
-
-    if not room or not room["rated"] or room.get("rating_awarded"):
-        return
-
-    winner_id = room["players"][winner_side]
-    white_id = room["players"]["w"]
-    black_id = room["players"]["b"]
-
-    try:
-        supabase.rpc("award_match_rating", {
-            "p_match_id": code,
-            "p_white": white_id,
-            "p_black": black_id,
-            "p_winner": winner_id
-        }).execute()
-
-        room["rating_awarded"] = True
-
-        for side in ("w", "b"):
-            player_id = room["players"][side]
-            player = get_player_by_id(player_id)
-
-            if player:
-                socketio.emit(
-                    "rating_updated",
-                    account_response(player),
-                    to=room[side_name(room, side)]["sid"]
-                )
-
-    except Exception:
-        app.logger.exception("Could not award match rating")
-
-
-def side_name(room, side):
-    return "white" if side == "w" else "black"
-
-
-def finish_by_time(code, loser):
-    room = rooms.get(code)
-
-    if not room or room["over"]:
-        return
-
-    room["over"] = True
-    winner = "b" if loser == "w" else "w"
-
-    if room["rated"]:
-        award_rating(code, winner)
-
-    socketio.emit("clock_flag", {"loser": loser}, to=code)
-
-
-# ---------------- MATCHMAKING ----------------
+# -------------------- MATCHMAKING --------------------
 
 @socketio.on("find_match")
 def find_match(data=None):
     data = data or {}
+    sid = request.sid
     player = current_player()
 
     if not player:
-        emit("match_error", {"message": "Log in before finding a rated opponent."})
-        return
-
-    sid = request.sid
-
-    if sid in sid_room:
-        emit("match_error", {"message": "You are already in a match."})
+        emit("match_error", {
+            "message": "Log in before searching. Random matches are always rated."
+        })
         return
 
     seconds = max(0, min(7200, int(data.get("seconds", 300))))
     increment = max(0, min(60, int(data.get("increment", 0))))
 
-    waiting_players[:] = [
-        item for item in waiting_players if item["sid"] != sid
-    ]
+    with lock:
+        waiting_players[:] = [
+            p for p in waiting_players if p["sid"] != sid
+        ]
 
-    now = time.monotonic()
-    chosen = None
-    chosen_difference = None
+        now = time.monotonic()
+        opponent = None
+        best_difference = None
 
-    for item in waiting_players:
-        waited = now - item["joined"]
-        allowed_difference = 100 + int(waited // 5) * 50
+        for candidate in waiting_players:
+            waited = now - candidate["joined"]
+            allowed_difference = 200 + int(waited * 25)
 
-        if waited >= 60:
-            allowed_difference = 1000000
+            difference = abs(candidate["rating"] - player["rating"])
 
-        difference = abs(item["rating"] - player["rating"])
+            if difference <= allowed_difference:
+                if best_difference is None or difference < best_difference:
+                    opponent = candidate
+                    best_difference = difference
 
-        if difference <= allowed_difference:
-            if chosen is None or difference < chosen_difference:
-                chosen = item
-                chosen_difference = difference
+        if opponent:
+            waiting_players.remove(opponent)
 
-    if chosen:
-        waiting_players.remove(chosen)
+            code = new_room(
+                opponent["sid"], sid,
+                opponent["seconds"], opponent["increment"],
+                True, opponent["player_id"], player["id"]
+            )
+            send_match(code)
 
-        white = {
-            "sid": chosen["sid"],
-            "player_id": chosen["player_id"]
-        }
-        black = {
-            "sid": sid,
-            "player_id": player["id"]
-        }
+        else:
+            waiting_players.append({
+                "sid": sid,
+                "player_id": player["id"],
+                "rating": player["rating"],
+                "seconds": seconds,
+                "increment": increment,
+                "joined": now
+            })
 
-        code = new_room(
-            white, black,
-            chosen["seconds"],
-            chosen["increment"],
-            rated=True
-        )
-        emit_match(code)
-
-    else:
-        waiting_players.append({
-            "sid": sid,
-            "player_id": player["id"],
-            "rating": player["rating"],
-            "seconds": seconds,
-            "increment": increment,
-            "joined": now
-        })
-
-        emit("searching", {"message": "Searching for an opponent..."})
+            emit("searching", {
+                "message": "Looking for an opponent. The rating range expands while you wait..."
+            })
 
 
 @socketio.on("cancel_match")
 def cancel_match():
-    waiting_players[:] = [
-        item for item in waiting_players if item["sid"] != request.sid
-    ]
+    sid = request.sid
+
+    with lock:
+        waiting_players[:] = [
+            p for p in waiting_players if p["sid"] != sid
+        ]
+
     emit("match_cancelled")
 
 
-# ---------------- PRIVATE LOBBIES ----------------
+# -------------------- PRIVATE LOBBIES --------------------
 
 @socketio.on("create_private_lobby")
 def create_private_lobby(data=None):
     data = data or {}
     sid = request.sid
-
-    if sid in sid_room:
-        emit("private_lobby_error", {"message": "You are already in a match."})
-        return
+    player = current_player()
 
     seconds = max(0, min(7200, int(data.get("seconds", 300))))
     increment = max(0, min(60, int(data.get("increment", 0))))
+    rated = bool(data.get("rated", False))
 
-    code = make_room_code()
+    if rated and not player:
+        emit("private_lobby_error", {
+            "message": "Log in to create a rated private game."
+        })
+        return
+
+    code = room_code()
 
     rooms[code] = {
-        "white": {"sid": sid, "player_id": None},
+        "white": sid,
         "black": None,
+        "white_id": player["id"] if player else None,
+        "black_id": None,
+        "rated": rated,
+        "board": initial_board(),
+        "rights": {"wK": True, "wQ": True, "bK": True, "bQ": True},
         "clocks": {"w": seconds, "b": seconds},
         "increment": increment,
         "active": "w",
         "unlimited": seconds == 0,
         "last": time.monotonic(),
         "started": False,
-        "over": False,
-        "rated": False,
-        "board": initial_board(),
-        "rights": {
-            "wK": True, "wQ": True,
-            "bK": True, "bQ": True
-        },
-        "turn": "w",
-        "players": {"w": None, "b": None}
+        "over": False
     }
 
     sid_room[sid] = code
@@ -659,8 +637,7 @@ def create_private_lobby(data=None):
     emit("private_lobby_created", {
         "code": code,
         "room": code,
-        "seconds": seconds,
-        "increment": increment
+        "rated": rated
     })
 
 
@@ -670,25 +647,35 @@ def join_private_lobby(data=None):
     code = str(data.get("code", "")).strip().upper()
     room = rooms.get(code)
 
-    if not room or room["black"] is not None:
+    if not room or room["black"] is not None or room["over"]:
         emit("private_lobby_error", {
             "message": "That code is invalid or the lobby is full."
         })
         return
 
-    if room["white"]["sid"] == request.sid:
+    if room["white"] == request.sid:
         emit("private_lobby_error", {
-            "message": "You created this lobby."
+            "message": "You created this lobby. Share the code with your opponent."
         })
         return
 
-    room["black"] = {"sid": request.sid, "player_id": None}
+    player = current_player()
+
+    if room["rated"] and not player:
+        emit("private_lobby_error", {
+            "message": "This is a rated game. Log in before joining."
+        })
+        return
+
+    room["black"] = request.sid
+    room["black_id"] = player["id"] if player else None
+
     sid_room[request.sid] = code
     join_room(code)
-    emit_match(code)
+    send_match(code)
 
 
-# ---------------- ONLINE MOVES ----------------
+# -------------------- ONLINE MOVES --------------------
 
 @socketio.on("online_move")
 def online_move(data=None):
@@ -699,20 +686,11 @@ def online_move(data=None):
     if not room or room["over"]:
         return
 
-    sid = request.sid
-
-    if sid not in (room["white"]["sid"], room["black"]["sid"]):
-        return
-
-    side = "w" if sid == room["white"]["sid"] else "b"
-
-    if side != room["turn"]:
+    side = get_side(room, request.sid)
+    if not side or side != room["active"]:
         return
 
     now = time.monotonic()
-
-    if not room["started"] and side != "w":
-        return
 
     if not room["unlimited"] and room["started"]:
         elapsed = max(0, now - room["last"])
@@ -720,69 +698,30 @@ def online_move(data=None):
 
         if room["clocks"][side] <= 0:
             room["clocks"][side] = 0
-            finish_by_time(code, side)
+            finish_room(code, "b" if side == "w" else "w", "time")
             return
 
     move = data.get("move")
-
     if not isinstance(move, dict):
         return
 
-    try:
-        fr = int(move["fr"])
-        fc = int(move["fc"])
-        tr = int(move["tr"])
-        tc = int(move["tc"])
-    except (KeyError, TypeError, ValueError):
+    valid, king_captured = apply_server_move(room, move)
+
+    if not valid:
+        emit("invalid_move", {
+            "message": "That move was not accepted. The board will be refreshed."
+        })
         return
-
-    if not all(0 <= n < 8 for n in (fr, fc, tr, tc)):
-        return
-
-    board = room["board"]
-    moving = board[fr][fc]
-
-    if moving == "." or color_of(moving) != side:
-        return
-
-    legal = make_moves(board, fr, fc, room["rights"])
-
-    chosen = next(
-        (m for m in legal if m["tr"] == tr and m["tc"] == tc),
-        None
-    )
-
-    if not chosen:
-        emit("move_rejected", {"message": "That move is not legal."})
-        return
-
-    promotion = move.get("promotion")
-
-    if moving == "P" and tr == 0:
-        if promotion not in ("Q", "R", "B", "N"):
-            promotion = "Q"
-    elif moving == "p" and tr == 7:
-        if promotion not in ("q", "r", "b", "n"):
-            promotion = "q"
-    else:
-        promotion = None
-
-    chosen["promotion"] = promotion
-
-    captured = apply_move(room, chosen)
 
     room["started"] = True
-    room["clocks"][side] += room["increment"]
-    room["turn"] = "b" if side == "w" else "w"
-    room["active"] = room["turn"]
+
+    if not room["unlimited"]:
+        room["clocks"][side] += room["increment"]
+
+    room["active"] = "b" if side == "w" else "w"
     room["last"] = now
 
-    socketio.emit(
-        "opponent_move",
-        chosen,
-        to=code,
-        include_self=False
-    )
+    socketio.emit("opponent_move", move, to=code, include_self=False)
 
     socketio.emit("clock_update", {
         "clocks": room["clocks"],
@@ -790,16 +729,11 @@ def online_move(data=None):
         "increment": room["increment"]
     }, to=code)
 
-    if captured in ("K", "k"):
-        room["over"] = True
-
-        if room["rated"]:
-            award_rating(code, side)
-
-        socketio.emit("king_captured", {"winner": side}, to=code)
+    if king_captured:
+        finish_room(code, side, "king")
 
 
-# ---------------- RESIGNATION ----------------
+# -------------------- RESIGNATION --------------------
 
 @socketio.on("online_resign")
 def online_resign(data=None):
@@ -809,51 +743,43 @@ def online_resign(data=None):
     if not room or room["over"]:
         return
 
-    sid = request.sid
-
-    if sid not in (room["white"]["sid"], room["black"]["sid"]):
+    side = get_side(room, request.sid)
+    if not side:
         return
 
-    side = "w" if sid == room["white"]["sid"] else "b"
-    winner = "b" if side == "w" else "w"
-
-    room["over"] = True
-
-    if room["rated"]:
-        award_rating(code, winner)
-
-    socketio.emit("opponent_resigned", to=code, include_self=False)
+    finish_room(code, "b" if side == "w" else "w", "resignation")
 
 
-# ---------------- DISCONNECT ----------------
+# -------------------- DISCONNECT --------------------
 
 @socketio.on("disconnect")
 def disconnect():
     sid = request.sid
 
-    waiting_players[:] = [
-        item for item in waiting_players if item["sid"] != sid
-    ]
+    with lock:
+        waiting_players[:] = [
+            p for p in waiting_players if p["sid"] != sid
+        ]
 
     code = sid_room.pop(sid, None)
 
-    if code and code in rooms:
-        room = rooms[code]
+    if not code:
+        return
 
-        socketio.emit(
-            "opponent_disconnected",
-            to=code,
-            include_self=False
-        )
+    room = rooms.get(code)
+    if not room or room["over"]:
+        return
 
+    side = get_side(room, sid)
+
+    if side and room["started"] and room["black"] is not None:
+        finish_room(code, "b" if side == "w" else "w", "disconnect")
+    else:
+        socketio.emit("opponent_disconnected", {}, to=code, include_self=False)
         rooms.pop(code, None)
 
-        for player in (room["white"], room["black"]):
-            if player:
-                sid_room.pop(player["sid"], None)
 
-
-# ---------------- CLOCK WORKER ----------------
+# -------------------- CLOCK --------------------
 
 def clock_worker():
     while True:
@@ -862,22 +788,23 @@ def clock_worker():
 
         for code, room in list(rooms.items()):
             if (
-                not room["started"]
-                or room["over"]
-                or room["black"] is None
-                or room["unlimited"]
+                room["over"] or
+                not room["started"] or
+                room["black"] is None or
+                room["unlimited"]
             ):
                 continue
 
-            side = room["active"]
             elapsed = max(0, now - room["last"])
-            remaining = room["clocks"][side] - elapsed
+            remaining = room["clocks"][room["active"]] - elapsed
 
             if remaining <= 0:
-                finish_by_time(code, side)
+                room["clocks"][room["active"]] = 0
+                loser = room["active"]
+                finish_room(code, "b" if loser == "w" else "w", "time")
             else:
                 socketio.emit("clock_tick", {
-                    "active": side,
+                    "active": room["active"],
                     "remaining": remaining
                 }, to=code)
 
@@ -887,7 +814,6 @@ socketio.start_background_task(clock_worker)
 
 if __name__ == "__main__":
     print("Mouseslip Chess server starting...")
-
     socketio.run(
         app,
         host="0.0.0.0",
