@@ -28,6 +28,7 @@ button.secondary{background:#303a33;color:white}
 input[type=range]{width:100%;accent-color:var(--green)}
 select,input{width:100%;background:#303a33;color:white;border:0;border-radius:9px;padding:13px;font-size:16px}
 input{margin:6px 0 14px}
+input[type=checkbox]{width:auto;accent-color:var(--green);transform:scale(1.2);margin-right:8px}
 .buttons{display:flex;gap:12px;justify-content:center;margin:18px auto;max-width:540px}
 .buttons button{flex:1}
 .board{width:min(82vw,560px);aspect-ratio:1;display:grid;grid-template-columns:repeat(8,minmax(0,1fr));grid-template-rows:repeat(8,minmax(0,1fr));margin:18px auto;border:5px solid #303a33;overflow:hidden}
@@ -85,17 +86,12 @@ input{margin:6px 0 14px}
 <div id="accountLoggedOut">
 <div class="panel form-panel">
 <h3 id="accountFormTitle">Login</h3>
-
 <label>Username</label>
 <input id="accountUsername" maxlength="16" autocomplete="username" placeholder="Enter username">
-
 <label>Password</label>
 <input id="accountPassword" type="password" maxlength="128" autocomplete="current-password" placeholder="Enter password">
-
 <p class="error" id="accountError"></p>
-
 <button onclick="submitAccount()">Login</button>
-
 <div class="row" style="margin-top:14px">
 <button class="secondary" onclick="toggleAccountForm()">Switch to Sign Up</button>
 </div>
@@ -125,7 +121,6 @@ input{margin:6px 0 14px}
 </div>
 
 <div id="accountMessage" class="success"></div>
-
 <button class="secondary" onclick="show('home')">Back to Home</button>
 </section>
 
@@ -198,6 +193,14 @@ input{margin:6px 0 14px}
 </select>
 </div>
 
+<div class="option">
+<label>
+<input id="privateRated" type="checkbox" checked>
+Rated private game
+</label>
+<p class="small">This setting only applies to private games. Random matches are always rated. Bot games are never rated.</p>
+</div>
+
 <div class="menu">
 <button onclick="findOpponent()">Find Random Opponent</button>
 <button onclick="createPrivateLobby()">Create Private Lobby</button>
@@ -207,7 +210,7 @@ input{margin:6px 0 14px}
 <div id="privateCreate" style="display:none;text-align:center">
 <p>Your private lobby code:</p>
 <h1 id="lobbyCode" style="letter-spacing:5px"></h1>
-<p>Share this code with your opponent. Waiting for them to join...</p>
+<p id="lobbyRatedText">Waiting for your opponent...</p>
 </div>
 
 <div id="privateJoin" style="display:none;text-align:center">
@@ -217,7 +220,6 @@ input{margin:6px 0 14px}
 </div>
 
 <p id="onlineStatus" class="status">Choose an online game option.</p>
-
 <div class="row">
 <button class="secondary" onclick="cancelSearch()">Cancel / Leave</button>
 </div>
@@ -232,7 +234,8 @@ input{margin:6px 0 14px}
 <p>Choose a piece and a legal destination. The piece may slip to a nearby legal destination.</p>
 <p>If the piece has only one legal destination, it moves there normally.</p>
 <p>Knights can only slip in the same forward/backward rank direction as the intended move.</p>
-<p>Capture the opposing king to win. The bot follows the same rules.</p>
+<p>Capturing the opposing king wins. The bot follows the same rules.</p>
+<p>Castling is allowed. Promotion can result in a queen, rook, bishop or knight.</p>
 </div>
 <button class="secondary" onclick="show('home')">Back</button>
 </section>
@@ -259,7 +262,7 @@ input{margin:6px 0 14px}
 <div class="row">
 <button class="secondary" onclick="resetGame()">Restart</button>
 <button class="secondary" onclick="resign()">Resign</button>
-<button class="secondary" onclick="show('home')">Menu</button>
+<button class="secondary" onclick="leaveGame()">Menu</button>
 </div>
 </section>
 
@@ -275,22 +278,18 @@ k:"♚",q:"♛",r:"♜",b:"♝",n:"♞",p:"♟"
 
 let board=[],turn="w",selected=null,legalForSelected=[];
 let human="w",mode="bot",difficulty=5,room=null,onlineColor=null;
-let searching=false,gameOver=false,history=[],lastMoveText="";
+let searching=false,gameOver=false;
 let castleRights={wK:true,wQ:true,bK:true,bQ:true};
 
-let clockInitial=300;
-let clockIncrement=0;
+let clockInitial=300,clockIncrement=0;
 let clocks={w:300,b:300};
-let clockActive="w";
-let clockStarted=false;
-let clockLast=0;
-let clockTimer=null;
+let clockActive="w",clockStarted=false,clockLast=0,clockTimer=null;
 
 let accountMode="login";
 let loggedInPlayer=null;
 
 
-// ACCOUNT FUNCTIONS
+// ---------------- ACCOUNT ----------------
 
 async function apiRequest(url,data){
 const response=await fetch(url,{
@@ -306,6 +305,11 @@ catch(e){throw new Error("The server returned an unexpected response.")}
 
 if(!response.ok)throw new Error(result.error||"Something went wrong.");
 return result;
+}
+
+function show(id){
+document.querySelectorAll(".screen").forEach(x=>x.classList.remove("active"));
+document.getElementById(id).classList.add("active");
 }
 
 function openAccount(){
@@ -331,7 +335,6 @@ async function submitAccount(){
 const username=document.getElementById("accountUsername").value.trim();
 const password=document.getElementById("accountPassword").value;
 const error=document.getElementById("accountError");
-
 error.textContent="";
 
 try{
@@ -339,7 +342,6 @@ const result=await apiRequest(
 accountMode==="login"?"/api/login":"/api/register",
 {username,password}
 );
-
 loggedInPlayer=result.player;
 document.getElementById("accountPassword").value="";
 updateAccountUI();
@@ -410,12 +412,7 @@ document.getElementById("accountMessage").textContent=e.message;
 }
 
 
-// GAME FUNCTIONS
-
-function show(id){
-document.querySelectorAll(".screen").forEach(x=>x.classList.remove("active"));
-document.getElementById(id).classList.add("active");
-}
+// ---------------- GAME SETUP ----------------
 
 function updateDiff(){
 let n=+document.getElementById("difficulty").value;
@@ -439,6 +436,7 @@ return [
 
 function startBot(){
 mode="bot";
+room=null;
 difficulty=+document.getElementById("difficulty").value;
 
 let c=document.getElementById("colour").value;
@@ -455,13 +453,11 @@ board=initial();
 turn="w";
 selected=null;
 gameOver=false;
-history=[];
-lastMoveText="";
 castleRights={wK:true,wQ:true,bK:true,bQ:true};
 
-clockInitial=timeSeconds;
-clockIncrement=increment;
-clocks={w:timeSeconds,b:timeSeconds};
+clockInitial=Number(timeSeconds);
+clockIncrement=Number(increment);
+clocks={w:clockInitial,b:clockInitial};
 clockActive="w";
 clockStarted=false;
 clockLast=0;
@@ -470,6 +466,7 @@ if(clockTimer)clearInterval(clockTimer);
 
 document.getElementById("gameInfo").textContent=info;
 document.getElementById("lastMove").textContent="";
+document.getElementById("status").textContent="White to move";
 
 show("game");
 render();
@@ -478,6 +475,9 @@ updateStatus();
 
 if(mode==="bot"&&human==="b")setTimeout(botMove,500);
 }
+
+
+// ---------------- CLOCKS ----------------
 
 function formatClock(value){
 if(value===0&&clockInitial===0)return "∞";
@@ -532,8 +532,11 @@ clockLast=Date.now();
 updateClockDisplay();
 }
 
+
+// ---------------- CHESS RULES ----------------
+
 function colorOf(p){
-return !p?"":p===p.toUpperCase()?"w":"b";
+return !p?"":p==="."?"":p===p.toUpperCase()?"w":"b";
 }
 
 function inside(r,c){
@@ -544,90 +547,17 @@ function copyBoard(b){
 return b.map(row=>row.slice());
 }
 
-function findKing(b,color){
-let k=color==="w"?"K":"k";
-for(let r=0;r<8;r++)
-for(let c=0;c<8;c++)
-if(b[r][c]===k)return [r,c];
-return null;
-}
-
-function attacked(b,r,c,by){
-const pawnDir=by==="w"?-1:1;
-const pawn=by==="w"?"P":"p";
-
-for(let dc of [-1,1]){
-let rr=r-pawnDir,cc=c-dc;
-if(inside(rr,cc)&&b[rr][cc]===pawn)return true;
-}
-
-const knight=by==="w"?"N":"n";
-
-for(let [dr,dc] of [
-[-2,-1],[-2,1],[-1,-2],[-1,2],
-[1,-2],[1,2],[2,-1],[2,1]
-]){
-let rr=r+dr,cc=c+dc;
-if(inside(rr,cc)&&b[rr][cc]===knight)return true;
-}
-
-const king=by==="w"?"K":"k";
-
-for(let dr=-1;dr<=1;dr++)
-for(let dc=-1;dc<=1;dc++){
-if(!dr&&!dc)continue;
-let rr=r+dr,cc=c+dc;
-if(inside(rr,cc)&&b[rr][cc]===king)return true;
-}
-
-const rays=[
-[-1,0],[1,0],[0,-1],[0,1],
-[-1,-1],[-1,1],[1,-1],[1,1]
-];
-
-for(let i=0;i<rays.length;i++){
-let [dr,dc]=rays[i];
-let rr=r+dr,cc=c+dc,step=1;
-
-while(inside(rr,cc)){
-let p=b[rr][cc];
-
-if(p){
-let q=p.toLowerCase();
-
-if(colorOf(p)===by&&(
-q==="q"||
-(i<4&&q==="r")||
-(i>=4&&q==="b")||
-(step===1&&q==="k")
-))return true;
-
-break;
-}
-
-rr+=dr;
-cc+=dc;
-step++;
-}
-}
-
-return false;
-}
-
 function pseudoMoves(b,r,c){
 let p=b[r][c],color=colorOf(p),type=p.toLowerCase(),out=[];
 
+if(!p||p===".")return out;
+
 const add=(rr,cc)=>{
 if(!inside(rr,cc))return false;
-
 let dest=b[rr][cc];
 if(colorOf(dest)===color)return false;
-
-out.push({
-fr:r,fc:c,tr:rr,tc:cc,piece:p,capture:dest
-});
-
-return !dest;
+out.push({fr:r,fc:c,tr:rr,tc:cc,piece:p,capture:dest==="."?"":dest});
+return !dest||dest==="";
 };
 
 if(type==="p"){
@@ -635,7 +565,6 @@ let d=color==="w"?-1:1;
 
 if(inside(r+d,c)&&!b[r+d][c]){
 add(r+d,c);
-
 let start=color==="w"?6:1;
 if(r===start&&!b[r+2*d][c])add(r+2*d,c);
 }
@@ -701,7 +630,6 @@ return out;
 function applyRaw(b,m,promotion){
 let n=copyBoard(b);
 let p=n[m.fr][m.fc];
-let color=colorOf(p);
 
 n[m.fr][m.fc]="";
 n[m.tr][m.tc]=p;
@@ -716,8 +644,10 @@ n[home][rookFrom]="";
 }
 
 if((p==="P"&&m.tr===0)||(p==="p"&&m.tr===7)){
-let chosen=promotion||(color==="w"?["R","B","N"]:["r","b","n"])[Math.floor(Math.random()*3)];
+let chosen=promotion||(p==="P"?"Q":"q");
 n[m.tr][m.tc]=chosen;
+}else if(promotion){
+n[m.tr][m.tc]=promotion;
 }
 
 return n;
@@ -786,6 +716,9 @@ function coord(m){
 return "abcdefgh"[m.fc]+(8-m.fr)+" → "+"abcdefgh"[m.tc]+(8-m.tr);
 }
 
+
+// ---------------- MOVE HANDLING ----------------
+
 function performMove(m,send=true){
 if(gameOver)return;
 
@@ -798,10 +731,10 @@ actual=chooseSlip(m,all);
 
 let moving=board[actual.fr][actual.fc];
 let captured=board[actual.tr][actual.tc];
-let promotion=null;
 
+let promotion=null;
 if((moving==="P"&&actual.tr===0)||(moving==="p"&&actual.tr===7)){
-let choices=moving==="P"?["R","B","N"]:["r","b","n"];
+let choices=moving==="P"?["Q","R","B","N"]:["q","r","b","n"];
 promotion=choices[Math.floor(Math.random()*choices.length)];
 }
 
@@ -813,19 +746,16 @@ legalForSelected=[];
 
 if(mode!=="online")switchLocalClock(mover);
 
-lastMoveText=(mover==="w"?"White":"Black")+
-" intended "+coord(m)+"; actual "+coord(actual)+
+document.getElementById("lastMove").textContent=
+(mover==="w"?"White":"Black")+" intended "+coord(m)+
+"; actual "+coord(actual)+
 (promotion?" · promoted to "+promotion.toUpperCase():"");
-
-document.getElementById("lastMove").textContent=lastMoveText;
 
 if(captured==="k"||captured==="K"){
 gameOver=true;
 if(clockTimer)clearInterval(clockTimer);
 document.getElementById("status").textContent=
-mode==="online"
-? "You win by capturing the king!"
-: (mover==="w"?"White":"Black")+" wins by capturing the king!";
+(mover==="w"?"White":"Black")+" wins by capturing the king!";
 }else{
 updateStatus();
 }
@@ -897,7 +827,6 @@ if(legalForSelected.some(m=>m.tr===r&&m.tc===c))
 s.classList.add(board[r][c]?"capture":"target");
 
 let p=board[r][c];
-
 if(p){
 s.textContent=GLYPH[p];
 s.classList.add(colorOf(p)==="w"?"whitepiece":"blackpiece");
@@ -914,6 +843,9 @@ document.getElementById("status").textContent=
 (turn==="w"?"White":"Black")+" to move"+
 (moves.length===0?" · No legal moves":"");
 }
+
+
+// ---------------- BOT ----------------
 
 function botMove(){
 if(gameOver||mode!=="bot"||turn===human)return;
@@ -940,35 +872,48 @@ let chosen=pool[Math.floor(Math.random()*pool.length)].m;
 performMove(chosen,false);
 }
 
+
+// ---------------- GAME CONTROLS ----------------
+
 function resetGame(){
 if(mode==="online"){
 document.getElementById("status").textContent=
-"Online game cannot be reset unilaterally. Return to menu to leave.";
+"Online games cannot be restarted by one player. Leave the game instead.";
 return;
 }
 
 beginGame(
-mode==="bot"?
-"Bot difficulty "+difficulty+" · You are "+(human==="w"?"White":"Black"):
-"Local game"
+"Bot difficulty "+difficulty+" · You are "+(human==="w"?"White":"Black")
 );
 }
 
 function resign(){
-    if(gameOver)return;
+if(gameOver)return;
 
-    gameOver=true;
-    if(clockTimer)clearInterval(clockTimer);
+gameOver=true;
+if(clockTimer)clearInterval(clockTimer);
 
-    if(mode==="online"){
-        document.getElementById("status").textContent =
-            "You resigned. You lose!";
-        if(socket)socket.emit("online_resign",{room});
-    }else{
-        document.getElementById("status").textContent =
-            (turn==="w"?"White":"Black")+" resigned.";
-    }
+if(mode==="online"&&socket){
+socket.emit("online_resign",{room});
+document.getElementById("status").textContent="You resigned. Waiting for the result...";
+}else{
+document.getElementById("status").textContent=
+(turn==="w"?"White":"Black")+" resigned.";
 }
+}
+
+function leaveGame(){
+if(mode==="online"){
+document.getElementById("status").textContent=
+"Leaving the game. If the game has started, disconnecting counts as a forfeit.";
+if(socket)socket.disconnect();
+}
+if(clockTimer)clearInterval(clockTimer);
+show("home");
+}
+
+
+// ---------------- ONLINE GAMES ----------------
 
 function selectedOnlineSettings(){
 return {
@@ -979,8 +924,14 @@ increment:Number(document.getElementById("onlineIncrement").value)
 
 function findOpponent(){
 if(!socket){
+document.getElementById("onlineStatus").textContent="Connection unavailable.";
+return;
+}
+
+if(!loggedInPlayer){
 document.getElementById("onlineStatus").textContent=
-"Connection unavailable. Start the Flask server first.";
+"Please log in first. Random online games are always rated.";
+show("online");
 return;
 }
 
@@ -993,15 +944,26 @@ socket.emit("find_match",selectedOnlineSettings());
 
 function createPrivateLobby(){
 if(!socket){
+document.getElementById("onlineStatus").textContent="Connection unavailable.";
+return;
+}
+
+let rated=document.getElementById("privateRated").checked;
+
+if(rated&&!loggedInPlayer){
 document.getElementById("onlineStatus").textContent=
-"Connection unavailable. Start the Flask server first.";
+"Log in before creating a rated private game.";
 return;
 }
 
 document.getElementById("privateCreate").style.display="block";
 document.getElementById("privateJoin").style.display="none";
 document.getElementById("onlineStatus").textContent="Creating your lobby...";
-socket.emit("create_private_lobby",selectedOnlineSettings());
+
+socket.emit("create_private_lobby",{
+...selectedOnlineSettings(),
+rated
+});
 }
 
 function showJoinLobby(){
@@ -1032,8 +994,11 @@ function cancelSearch(){
 searching=false;
 if(socket)socket.emit("cancel_match");
 document.getElementById("onlineStatus").textContent=
-"Search cancelled or lobby left.";
+"Search cancelled.";
 }
+
+
+// ---------------- SOCKET EVENTS ----------------
 
 if(socket){
 
@@ -1041,9 +1006,15 @@ socket.on("searching",d=>{
 document.getElementById("onlineStatus").textContent=d.message;
 });
 
+socket.on("match_error",d=>{
+document.getElementById("onlineStatus").textContent=d.message;
+});
+
 socket.on("private_lobby_created",d=>{
 room=d.room;
 document.getElementById("lobbyCode").textContent=d.room;
+document.getElementById("lobbyRatedText").textContent=
+d.rated?"Rated game · Winner +10 / Loser -10":"Unrated game · Ratings will not change";
 document.getElementById("onlineStatus").textContent=
 "Lobby created. Waiting for opponent...";
 });
@@ -1063,7 +1034,8 @@ document.getElementById("privateCreate").style.display="none";
 document.getElementById("privateJoin").style.display="none";
 
 beginGame(
-"Online match · You are "+(onlineColor==="w"?"White":"Black"),
+"Online match · You are "+(onlineColor==="w"?"White":"Black")+
+(d.rated?" · RATED":" · UNRATED"),
 d.seconds,
 d.increment
 );
@@ -1085,12 +1057,10 @@ updateCastleRights(m,moving,captured);
 board=applyRaw(board,m,m.promotion);
 turn=turn==="w"?"b":"w";
 
-lastMoveText="Opponent moved.";
-document.getElementById("lastMove").textContent=lastMoveText;
+document.getElementById("lastMove").textContent="Opponent moved.";
 
 if(captured==="k"||captured==="K"){
 gameOver=true;
-if(clockTimer)clearInterval(clockTimer);
 document.getElementById("status").textContent=
 "You lost: your king was captured.";
 }else{
@@ -1098,6 +1068,11 @@ updateStatus();
 }
 
 render();
+});
+
+socket.on("invalid_move",d=>{
+document.getElementById("status").textContent=
+d.message||"Move rejected. Please refresh the game.";
 });
 
 socket.on("clock_tick",d=>{
@@ -1115,45 +1090,56 @@ clockIncrement=d.increment;
 updateClockDisplay();
 });
 
-socket.on("clock_flag",d=>{
-    if(gameOver)return;
-    gameOver=true;
-    if(clockTimer)clearInterval(clockTimer);
-
-    const iLost = d.loser === onlineColor;
-    document.getElementById("status").textContent = iLost
-        ? "You ran out of time. You lose!"
-        : "Your opponent ran out of time. You win!";
+socket.on("clock_stop",()=>{
+clockStarted=false;
 });
 
-socket.on("opponent_resigned",()=>{
-    if(gameOver)return;
-    gameOver=true;
-    if(clockTimer)clearInterval(clockTimer);
-    document.getElementById("status").textContent =
-        "Your opponent resigned. You win!";
+socket.on("match_result",d=>{
+gameOver=true;
+if(clockTimer)clearInterval(clockTimer);
+
+let won=d.winner===onlineColor;
+let message=won?"You won! ":"You lost. ";
+
+if(d.reason==="king")message+=won?"You captured the king.":"Your king was captured.";
+else if(d.reason==="resignation")message+=won?"Your opponent resigned.":"You resigned.";
+else if(d.reason==="time")message+=won?"Your opponent ran out of time.":"You ran out of time.";
+else if(d.reason==="disconnect")message+=won?"Your opponent disconnected.":"You disconnected.";
+
+if(d.rated){
+message+=" Rating ";
+message+=d.rating_updated?"updated":"could not be updated";
+if(d.rating!==null&&d.rating!==undefined)message+=" · Your rating: "+d.rating;
+}else{
+message+=" This game was unrated.";
+}
+
+document.getElementById("status").textContent=message;
+
+if(loggedInPlayer&&d.rating!==null&&d.rating!==undefined){
+loggedInPlayer.rating=d.rating;
+updateAccountUI();
+}
+refreshAccount();
 });
 
 socket.on("opponent_disconnected",()=>{
-    if(gameOver)return;
-    gameOver=true;
-    if(clockTimer)clearInterval(clockTimer);
-    document.getElementById("status").textContent =
-        "Your opponent disconnected. You win!";
+gameOver=true;
+document.getElementById("status").textContent=
+"Your opponent disconnected before the game started.";
 });
 
 socket.on("disconnect",()=>{
-    if(mode!=="online"||gameOver)return;
-    gameOver=true;
-    if(clockTimer)clearInterval(clockTimer);
-    document.getElementById("status").textContent =
-        "Connection lost. You lose!";
+if(mode==="online"&&!gameOver){
+document.getElementById("status").textContent=
+"Connection lost. Reconnect and check your account rating.";
+}
 });
 
 }
 
 
-// Check whether the player is already logged in when the page opens.
+// Load the account when the page opens.
 refreshAccount();
 </script>
 </body>
