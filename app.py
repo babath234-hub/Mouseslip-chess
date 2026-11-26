@@ -1,3 +1,4 @@
+
 import os
 import time
 import secrets
@@ -30,11 +31,7 @@ lock = threading.RLock()
 rooms = {}
 sid_room = {}
 waiting_players = []
-
-PIECES = {
-    "w": "PNBRQK",
-    "b": "pnbrqk"
-}
+connected_sids = set()
 
 
 # -------------------- ACCOUNTS --------------------
@@ -55,7 +52,7 @@ def get_player_by_id(player_id):
 
     result = (
         supabase.table("players")
-        .select("id, username, rating")
+        .select("id, username, rating, is_admin")
         .eq("id", player_id)
         .execute()
     )
@@ -74,7 +71,8 @@ def account_response(player):
     return {
         "id": player["id"],
         "username": player["username"],
-        "rating": player["rating"]
+        "rating": player["rating"],
+        "is_admin": bool(player.get("is_admin", False))
     }
 
 
@@ -111,7 +109,8 @@ def register():
         result = supabase.table("players").insert({
             "username": username,
             "password_hash": generate_password_hash(password),
-            "rating": 1000
+            "rating": 1000,
+            "is_admin": False
         }).execute()
 
         if not result.data:
@@ -219,6 +218,129 @@ def change_username():
         return database_error("changing username")
 
 
+# -------------------- PUBLIC COMMENTS --------------------
+
+@app.route("/api/comments", methods=["GET", "POST"])
+def comments():
+    try:
+        if request.method == "GET":
+            result = (
+                supabase.table("comments")
+                .select("id, username, message, created_at")
+                .order("created_at", desc=True)
+                .limit(50)
+                .execute()
+            )
+            return jsonify({"comments": result.data or []})
+
+        player = current_player()
+        if not player:
+            return jsonify({"error": "Log in to post a comment."}), 401
+
+        data = request.get_json(silent=True) or {}
+        message = str(data.get("message", "")).strip()
+
+        if not message or len(message) > 500:
+            return jsonify({
+                "error": "Comments must be between 1 and 500 characters."
+            }), 400
+
+        result = supabase.table("comments").insert({
+            "player_id": player["id"],
+            "username": player["username"],
+            "message": message
+        }).execute()
+
+        return jsonify({
+            "success": True,
+            "comment": result.data[0] if result.data else None
+        })
+
+    except Exception:
+        return database_error("comments")
+
+
+# -------------------- PRIVATE FEEDBACK --------------------
+
+@app.route("/api/feedback", methods=["POST"])
+def send_feedback():
+    try:
+        player = current_player()
+        if not player:
+            return jsonify({"error": "Log in to send private feedback."}), 401
+
+        data = request.get_json(silent=True) or {}
+        message = str(data.get("message", "")).strip()
+
+        if not message or len(message) > 2000:
+            return jsonify({
+                "error": "Feedback must be between 1 and 2000 characters."
+            }), 400
+
+        supabase.table("feedback").insert({
+            "player_id": player["id"],
+            "username": player["username"],
+            "message": message
+        }).execute()
+
+        return jsonify({"success": True})
+
+    except Exception:
+        return database_error("sending feedback")
+
+
+@app.route("/api/admin/feedback", methods=["GET"])
+def admin_feedback():
+    try:
+        player = current_player()
+        if not player or not player.get("is_admin"):
+            return jsonify({"error": "Admin access required."}), 403
+
+        result = (
+            supabase.table("feedback")
+            .select("*")
+            .order("created_at", desc=True)
+            .limit(100)
+            .execute()
+        )
+
+        return jsonify({"feedback": result.data or []})
+
+    except Exception:
+        return database_error("loading feedback inbox")
+
+
+@app.route("/api/admin/feedback/<int:feedback_id>/reply", methods=["POST"])
+def reply_feedback(feedback_id):
+    try:
+        player = current_player()
+        if not player or not player.get("is_admin"):
+            return jsonify({"error": "Admin access required."}), 403
+
+        data = request.get_json(silent=True) or {}
+        reply = str(data.get("reply", "")).strip()
+
+        if not reply or len(reply) > 2000:
+            return jsonify({
+                "error": "Replies must be between 1 and 2000 characters."
+            }), 400
+
+        result = (
+            supabase.table("feedback")
+            .update({
+                "admin_reply": reply,
+                "replied_at": "now()"
+            })
+            .eq("id", feedback_id)
+            .execute()
+        )
+
+        return jsonify({"success": True, "feedback": result.data})
+
+    except Exception:
+        return database_error("replying to feedback")
+
+
 # -------------------- CHESS SERVER --------------------
 
 def initial_board():
@@ -306,46 +428,58 @@ def player_id_for(room, side):
     return room["white_id"] if side == "w" else room["black_id"]
 
 
+def room_snapshot(room):
+    return {
+        "board": room["board"],
+        "rights": room["rights"],
+        "active": room["active"],
+        "clocks": room["clocks"],
+        "increment": room["increment"],
+        "started": room["started"]
+    }
+
+
 def finish_room(code, winner, reason):
-    room = rooms.get(code)
+    with lock:
+        room = rooms.get(code)
 
-    if not room or room["over"]:
-        return
+        if not room or room["over"]:
+            return
 
-    room["over"] = True
-    loser = "b" if winner == "w" else "w"
-    rating_updated = False
+        room["over"] = True
+        loser = "b" if winner == "w" else "w"
+        rating_updated = False
 
-    if room["rated"]:
-        white_id = room["white_id"]
-        black_id = room["black_id"]
-        winner_id = player_id_for(room, winner)
+        if room["rated"]:
+            white_id = room["white_id"]
+            black_id = room["black_id"]
+            winner_id = player_id_for(room, winner)
 
-        if white_id and black_id and winner_id:
-            try:
-                supabase.rpc("award_match_rating", {
-                    "p_match_id": code,
-                    "p_white": white_id,
-                    "p_black": black_id,
-                    "p_winner": winner_id
-                }).execute()
-                rating_updated = True
-            except Exception:
-                app.logger.exception("Could not award rating for %s", code)
+            if white_id and black_id and winner_id:
+                try:
+                    supabase.rpc("award_match_rating", {
+                        "p_match_id": code,
+                        "p_white": white_id,
+                        "p_black": black_id,
+                        "p_winner": winner_id
+                    }).execute()
+                    rating_updated = True
+                except Exception:
+                    app.logger.exception("Could not award rating for %s", code)
 
-    for side, sid in (("w", room["white"]), ("b", room["black"])):
-        player = get_player_by_id(player_id_for(room, side))
+        for side, sid in (("w", room["white"]), ("b", room["black"])):
+            player = get_player_by_id(player_id_for(room, side))
 
-        socketio.emit("match_result", {
-            "winner": winner,
-            "loser": loser,
-            "reason": reason,
-            "rated": room["rated"],
-            "rating_updated": rating_updated,
-            "rating": player["rating"] if player else None
-        }, to=sid)
+            socketio.emit("match_result", {
+                "winner": winner,
+                "loser": loser,
+                "reason": reason,
+                "rated": room["rated"],
+                "rating_updated": rating_updated,
+                "rating": player["rating"] if player else None
+            }, to=sid)
 
-    socketio.emit("clock_stop", {}, to=code)
+        socketio.emit("clock_stop", {}, to=code)
 
 
 def pseudo_moves(board, r, c, rights):
@@ -520,6 +654,18 @@ def apply_server_move(room, move):
     return True, king_captured
 
 
+# -------------------- ONLINE PLAYER COUNTER --------------------
+
+def broadcast_online_count():
+    socketio.emit("online_count", {"count": len(connected_sids)})
+
+
+@socketio.on("connect")
+def connected():
+    connected_sids.add(request.sid)
+    broadcast_online_count()
+
+
 # -------------------- MATCHMAKING --------------------
 
 @socketio.on("find_match")
@@ -534,8 +680,12 @@ def find_match(data=None):
         })
         return
 
-    seconds = max(0, min(7200, int(data.get("seconds", 300))))
-    increment = max(0, min(60, int(data.get("increment", 0))))
+    try:
+        seconds = max(0, min(7200, int(data.get("seconds", 300))))
+        increment = max(0, min(60, int(data.get("increment", 0))))
+    except (TypeError, ValueError):
+        emit("match_error", {"message": "Invalid time control."})
+        return
 
     with lock:
         waiting_players[:] = [
@@ -547,9 +697,14 @@ def find_match(data=None):
         best_difference = None
 
         for candidate in waiting_players:
+            if (
+                candidate["seconds"] != seconds or
+                candidate["increment"] != increment
+            ):
+                continue
+
             waited = now - candidate["joined"]
             allowed_difference = 200 + int(waited * 25)
-
             difference = abs(candidate["rating"] - player["rating"])
 
             if difference <= allowed_difference:
@@ -562,7 +717,7 @@ def find_match(data=None):
 
             code = new_room(
                 opponent["sid"], sid,
-                opponent["seconds"], opponent["increment"],
+                seconds, increment,
                 True, opponent["player_id"], player["id"]
             )
             send_match(code)
@@ -578,7 +733,7 @@ def find_match(data=None):
             })
 
             emit("searching", {
-                "message": "Looking for an opponent. The rating range expands while you wait..."
+                "message": "Looking for an opponent with the same time control. The rating range expands while you wait..."
             })
 
 
@@ -602,8 +757,13 @@ def create_private_lobby(data=None):
     sid = request.sid
     player = current_player()
 
-    seconds = max(0, min(7200, int(data.get("seconds", 300))))
-    increment = max(0, min(60, int(data.get("increment", 0))))
+    try:
+        seconds = max(0, min(7200, int(data.get("seconds", 300))))
+        increment = max(0, min(60, int(data.get("increment", 0))))
+    except (TypeError, ValueError):
+        emit("private_lobby_error", {"message": "Invalid time control."})
+        return
+
     rated = bool(data.get("rated", False))
 
     if rated and not player:
@@ -612,27 +772,28 @@ def create_private_lobby(data=None):
         })
         return
 
-    code = room_code()
+    with lock:
+        code = room_code()
 
-    rooms[code] = {
-        "white": sid,
-        "black": None,
-        "white_id": player["id"] if player else None,
-        "black_id": None,
-        "rated": rated,
-        "board": initial_board(),
-        "rights": {"wK": True, "wQ": True, "bK": True, "bQ": True},
-        "clocks": {"w": seconds, "b": seconds},
-        "increment": increment,
-        "active": "w",
-        "unlimited": seconds == 0,
-        "last": time.monotonic(),
-        "started": False,
-        "over": False
-    }
+        rooms[code] = {
+            "white": sid,
+            "black": None,
+            "white_id": player["id"] if player else None,
+            "black_id": None,
+            "rated": rated,
+            "board": initial_board(),
+            "rights": {"wK": True, "wQ": True, "bK": True, "bQ": True},
+            "clocks": {"w": seconds, "b": seconds},
+            "increment": increment,
+            "active": "w",
+            "unlimited": seconds == 0,
+            "last": time.monotonic(),
+            "started": False,
+            "over": False
+        }
 
-    sid_room[sid] = code
-    join_room(code)
+        sid_room[sid] = code
+        join_room(code)
 
     emit("private_lobby_created", {
         "code": code,
@@ -645,34 +806,35 @@ def create_private_lobby(data=None):
 def join_private_lobby(data=None):
     data = data or {}
     code = str(data.get("code", "")).strip().upper()
-    room = rooms.get(code)
-
-    if not room or room["black"] is not None or room["over"]:
-        emit("private_lobby_error", {
-            "message": "That code is invalid or the lobby is full."
-        })
-        return
-
-    if room["white"] == request.sid:
-        emit("private_lobby_error", {
-            "message": "You created this lobby. Share the code with your opponent."
-        })
-        return
-
     player = current_player()
 
-    if room["rated"] and not player:
-        emit("private_lobby_error", {
-            "message": "This is a rated game. Log in before joining."
-        })
-        return
+    with lock:
+        room = rooms.get(code)
 
-    room["black"] = request.sid
-    room["black_id"] = player["id"] if player else None
+        if not room or room["black"] is not None or room["over"]:
+            emit("private_lobby_error", {
+                "message": "That code is invalid or the lobby is full."
+            })
+            return
 
-    sid_room[request.sid] = code
-    join_room(code)
-    send_match(code)
+        if room["white"] == request.sid:
+            emit("private_lobby_error", {
+                "message": "You created this lobby. Share the code with your opponent."
+            })
+            return
+
+        if room["rated"] and not player:
+            emit("private_lobby_error", {
+                "message": "This is a rated game. Log in before joining."
+            })
+            return
+
+        room["black"] = request.sid
+        room["black_id"] = player["id"] if player else None
+
+        sid_room[request.sid] = code
+        join_room(code)
+        send_match(code)
 
 
 # -------------------- ONLINE MOVES --------------------
@@ -681,73 +843,167 @@ def join_private_lobby(data=None):
 def online_move(data=None):
     data = data or {}
     code = data.get("room")
-    room = rooms.get(code)
 
-    if not room or room["over"]:
-        return
+    with lock:
+        room = rooms.get(code)
 
-    side = get_side(room, request.sid)
-    if not side or side != room["active"]:
-        return
-
-    now = time.monotonic()
-
-    if not room["unlimited"] and room["started"]:
-        elapsed = max(0, now - room["last"])
-        room["clocks"][side] -= elapsed
-
-        if room["clocks"][side] <= 0:
-            room["clocks"][side] = 0
-            finish_room(code, "b" if side == "w" else "w", "time")
+        if not room or room["over"]:
             return
 
-    move = data.get("move")
-    if not isinstance(move, dict):
+        side = get_side(room, request.sid)
+        if not side or side != room["active"]:
+            return
+
+        now = time.monotonic()
+
+        if not room["unlimited"] and room["started"]:
+            elapsed = max(0, now - room["last"])
+            room["clocks"][side] -= elapsed
+            room["last"] = now
+
+            if room["clocks"][side] <= 0:
+                room["clocks"][side] = 0
+                finish_room(code, "b" if side == "w" else "w", "time")
+                return
+
+        move = data.get("move")
+        if not isinstance(move, dict):
+            socketio.emit("board_sync", room_snapshot(room), to=request.sid)
+            return
+
+        valid, king_captured = apply_server_move(room, move)
+
+        if not valid:
+            socketio.emit("invalid_move", {
+                "message": "That move was not accepted. Your board has been corrected."
+            }, to=request.sid)
+            socketio.emit("board_sync", room_snapshot(room), to=request.sid)
+            return
+
+        room["started"] = True
+
+        if not room["unlimited"]:
+            room["clocks"][side] += room["increment"]
+
+        room["active"] = "b" if side == "w" else "w"
+        room["last"] = now
+
+        socketio.emit("opponent_move", move, to=code, include_self=False)
+
+        socketio.emit("clock_update", {
+            "clocks": room["clocks"],
+            "active": room["active"],
+            "increment": room["increment"]
+        }, to=code)
+
+        if king_captured:
+            finish_room(code, side, "king")
+
+
+# -------------------- IN-GAME CHAT --------------------
+
+@socketio.on("request_chat_history")
+def request_chat_history(data=None):
+    code = (data or {}).get("room")
+
+    with lock:
+        room = rooms.get(code)
+        if not room or not get_side(room, request.sid):
+            return
+
+    try:
+        result = (
+            supabase.table("game_messages")
+            .select("username, message, created_at")
+            .eq("match_id", code)
+            .order("created_at", desc=False)
+            .limit(100)
+            .execute()
+        )
+        emit("chat_history", {"messages": result.data or []})
+    except Exception:
+        app.logger.exception("Could not load chat history")
+
+
+@socketio.on("send_game_message")
+def send_game_message(data=None):
+    data = data or {}
+    code = data.get("room")
+    message = str(data.get("message", "")).strip()
+
+    if not message or len(message) > 300:
         return
 
-    valid, king_captured = apply_server_move(room, move)
+    with lock:
+        room = rooms.get(code)
+        side = get_side(room, request.sid) if room else None
 
-    if not valid:
-        emit("invalid_move", {
-            "message": "That move was not accepted. The board will be refreshed."
-        })
-        return
+        if not room or not side or room["black"] is None:
+            return
 
-    room["started"] = True
+        player = get_player_by_id(player_id_for(room, side))
+        username = player["username"] if player else "Guest"
 
-    if not room["unlimited"]:
-        room["clocks"][side] += room["increment"]
+        try:
+            supabase.table("game_messages").insert({
+                "match_id": code,
+                "player_id": player_id_for(room, side),
+                "username": username,
+                "message": message
+            }).execute()
+        except Exception:
+            app.logger.exception("Could not save chat message")
+            return
 
-    room["active"] = "b" if side == "w" else "w"
-    room["last"] = now
-
-    socketio.emit("opponent_move", move, to=code, include_self=False)
-
-    socketio.emit("clock_update", {
-        "clocks": room["clocks"],
-        "active": room["active"],
-        "increment": room["increment"]
-    }, to=code)
-
-    if king_captured:
-        finish_room(code, side, "king")
+        socketio.emit("game_message", {
+            "username": username,
+            "message": message,
+            "created_at": time.time()
+        }, to=code)
 
 
-# -------------------- RESIGNATION --------------------
+# -------------------- RESIGNATION AND LEAVING --------------------
 
 @socketio.on("online_resign")
 def online_resign(data=None):
     code = (data or {}).get("room")
-    room = rooms.get(code)
 
-    if not room or room["over"]:
-        return
+    with lock:
+        room = rooms.get(code)
 
-    side = get_side(room, request.sid)
-    if not side:
-        return
+        if not room or room["over"]:
+            return
 
-    finish_room(code, "b" if side == "w" else "w", "resignation")
+        side = get_side(room, request.sid)
+        if not side:
+            return
+
+        finish_room(code, "b" if side == "w" else "w", "resignation")
+
+
+@socketio.on("leave_online")
+def leave_online(data=None):
+    code = (data or {}).get("room")
+
+    with lock:
+        room = rooms.get(code)
+        if not room:
+            return
+
+        side = get_side(room, request.sid)
+        if not side:
+            return
+
+        if room["started"] and room["black"] is not None and not room["over"]:
+            finish_room(code, "b" if side == "w" else "w", "disconnect")
+        else:
+            other_sid = room["black"] if side == "w" else room["white"]
+            if other_sid:
+                socketio.emit("opponent_disconnected", {}, to=other_sid)
+
+            rooms.pop(code, None)
+
+        sid_room.pop(request.sid, None)
 
 
 # -------------------- DISCONNECT --------------------
@@ -755,28 +1011,32 @@ def online_resign(data=None):
 @socketio.on("disconnect")
 def disconnect():
     sid = request.sid
+    connected_sids.discard(sid)
+    broadcast_online_count()
 
     with lock:
         waiting_players[:] = [
             p for p in waiting_players if p["sid"] != sid
         ]
 
-    code = sid_room.pop(sid, None)
+        code = sid_room.pop(sid, None)
 
-    if not code:
-        return
+        if not code:
+            return
 
-    room = rooms.get(code)
-    if not room or room["over"]:
-        return
+        room = rooms.get(code)
+        if not room or room["over"]:
+            return
 
-    side = get_side(room, sid)
+        side = get_side(room, sid)
 
-    if side and room["started"] and room["black"] is not None:
-        finish_room(code, "b" if side == "w" else "w", "disconnect")
-    else:
-        socketio.emit("opponent_disconnected", {}, to=code, include_self=False)
-        rooms.pop(code, None)
+        if side and room["started"] and room["black"] is not None:
+            finish_room(code, "b" if side == "w" else "w", "disconnect")
+        else:
+            other_sid = room["black"] if side == "w" else room["white"]
+            if other_sid:
+                socketio.emit("opponent_disconnected", {}, to=other_sid)
+            rooms.pop(code, None)
 
 
 # -------------------- CLOCK --------------------
@@ -786,27 +1046,32 @@ def clock_worker():
         socketio.sleep(0.25)
         now = time.monotonic()
 
-        for code, room in list(rooms.items()):
-            if (
-                room["over"] or
-                not room["started"] or
-                room["black"] is None or
-                room["unlimited"]
-            ):
-                continue
+        with lock:
+            for code, room in list(rooms.items()):
+                if (
+                    room["over"] or
+                    not room["started"] or
+                    room["black"] is None or
+                    room["unlimited"]
+                ):
+                    continue
 
-            elapsed = max(0, now - room["last"])
-            remaining = room["clocks"][room["active"]] - elapsed
+                elapsed = max(0, now - room["last"])
+                remaining = room["clocks"][room["active"]] - elapsed
 
-            if remaining <= 0:
-                room["clocks"][room["active"]] = 0
-                loser = room["active"]
-                finish_room(code, "b" if loser == "w" else "w", "time")
-            else:
-                socketio.emit("clock_tick", {
-                    "active": room["active"],
-                    "remaining": remaining
-                }, to=code)
+                if remaining <= 0:
+                    room["clocks"][room["active"]] = 0
+                    loser = room["active"]
+                    finish_room(
+                        code,
+                        "b" if loser == "w" else "w",
+                        "time"
+                    )
+                else:
+                    socketio.emit("clock_tick", {
+                        "active": room["active"],
+                        "remaining": remaining
+                    }, to=code)
 
 
 socketio.start_background_task(clock_worker)
