@@ -1,3 +1,4 @@
+
 <!doctype html>
 <html lang="en">
 <head>
@@ -90,11 +91,31 @@ input[type=checkbox]{width:auto;accent-color:var(--green);transform:scale(1.2);m
 <p>Every move has a mind of its own.</p>
 <div class="menu">
 <button onclick="show('setup')">Play Against Bot</button>
+<button class="secondary" onclick="show('leaderboard');loadLeaderboard()">🏆 Leaderboard</button>
 <button onclick="show('online')">Play Online</button>
 <button class="secondary" onclick="show('community');loadComments()">Community</button>
 <button class="secondary" onclick="show('rules')">How to Play</button>
 <button class="secondary" onclick="openAccount()">Account / Profile</button>
 </div>
+</section>
+
+<!-- LEADERBOARD -->
+
+<section id="leaderboard" class="screen">
+<h2>🏆 LEADERBOARD</h2>
+<p>See who has the highest rating in Mouseslip Chess!</p>
+
+<div class="panel">
+<label for="leaderboardSearch">Search for a player</label>
+<input id="leaderboardSearch" maxlength="16"
+placeholder="Enter a username..."
+oninput="searchLeaderboard()"
+autocomplete="off">
+<p id="leaderboardStatus" class="status">Loading players...</p>
+<div id="leaderboardList"></div>
+</div>
+
+<button class="secondary" onclick="show('home')">Back to Home</button>
 </section>
 
 <!-- ACCOUNT -->
@@ -413,6 +434,75 @@ catch(e){throw new Error("The server returned an unexpected response.")}
 
 if(!response.ok)throw new Error(result.error||"Something went wrong.");
 return result;
+}
+
+
+// ---------------- LEADERBOARD ----------------
+
+let leaderboardSearchTimer=null;
+
+async function loadLeaderboard(search=""){
+const list=document.getElementById("leaderboardList");
+const status=document.getElementById("leaderboardStatus");
+
+status.textContent="Loading players...";
+list.innerHTML="";
+
+try{
+const result=await apiRequest(
+"/api/leaderboard"+(search?"?q="+encodeURIComponent(search):"")
+);
+
+list.innerHTML="";
+
+if(!result.players||!result.players.length){
+status.textContent="No players found.";
+return;
+}
+
+status.textContent=search?"Search results":"Top 100 players";
+
+result.players.forEach((player,index)=>{
+const row=document.createElement("div");
+row.className="item";
+
+const isMe=loggedInPlayer&&
+player.username.toLowerCase()===
+loggedInPlayer.username.toLowerCase();
+
+if(isMe)row.style.border="2px solid var(--mint)";
+
+const heading=document.createElement("b");
+
+let medal="";
+if(!search&&index===0)medal="🥇 ";
+else if(!search&&index===1)medal="🥈 ";
+else if(!search&&index===2)medal="🥉 ";
+
+heading.textContent=medal+
+(search?"Player":"#"+(index+1))+
+" · "+player.username+(isMe?" (You)":"");
+
+const rating=document.createElement("p");
+rating.textContent=Number(player.rating).toLocaleString()+" rating";
+
+row.append(heading,rating);
+list.append(row);
+});
+
+}catch(e){
+status.textContent="Could not load leaderboard: "+e.message;
+}
+}
+
+function searchLeaderboard(){
+const search=document.getElementById("leaderboardSearch").value.trim();
+
+clearTimeout(leaderboardSearchTimer);
+
+leaderboardSearchTimer=setTimeout(()=>{
+loadLeaderboard(search);
+},300);
 }
 
 
@@ -1249,7 +1339,6 @@ if(gameOver)return;
 
 let mover=turn;
 
-// Start the local clock when the first move is made.
 if(mode==="bot"&&!clockStarted&&clockInitial>0){
 startLocalClock();
 }
@@ -1726,9 +1815,6 @@ updateAccountUI();
 refreshAccount();
 });
 
-// Fallback for the opponent_disconnected event.
-// If the server sends this event instead of match_result,
-// the remaining player is told that they won.
 socket.on("opponent_disconnected",()=>{
 if(gameOver)return;
 
