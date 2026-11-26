@@ -1,3 +1,4 @@
+
 <!doctype html>
 <html lang="en">
 <head>
@@ -15,10 +16,12 @@ body{margin:0;background:var(--bg);color:white;font-family:Arial,sans-serif;min-
 .screen.active{display:block}
 h1{font-size:clamp(34px,6vw,54px);color:var(--mint);margin:10px 0}
 h2{color:var(--mint)}
+h3{color:var(--mint)}
 p{color:var(--muted)}
 button,select{border:0;border-radius:9px;padding:13px 17px;font-size:16px;font-weight:bold}
 button{background:var(--green);color:#142018;cursor:pointer}
 button:hover{filter:brightness(1.1)}
+button:disabled{opacity:.5;cursor:not-allowed}
 button.secondary{background:#303a33;color:white}
 .menu{display:grid;gap:14px;max-width:320px;margin:32px auto}
 .panel{background:var(--panel);padding:22px;border-radius:16px;max-width:540px;margin:22px auto;text-align:left}
@@ -26,8 +29,9 @@ button.secondary{background:#303a33;color:white}
 .option label{display:block;margin-bottom:10px;font-weight:bold}
 .value{float:right;color:var(--mint)}
 input[type=range]{width:100%;accent-color:var(--green)}
-select,input{width:100%;background:#303a33;color:white;border:0;border-radius:9px;padding:13px;font-size:16px}
-input{margin:6px 0 14px}
+select,input,textarea{width:100%;background:#303a33;color:white;border:0;border-radius:9px;padding:13px;font-size:16px}
+input,textarea{margin:6px 0 14px}
+textarea{resize:vertical;min-height:90px;font-family:Arial,sans-serif}
 input[type=checkbox]{width:auto;accent-color:var(--green);transform:scale(1.2);margin-right:8px}
 .buttons{display:flex;gap:12px;justify-content:center;margin:18px auto;max-width:540px}
 .buttons button{flex:1}
@@ -52,11 +56,22 @@ input[type=checkbox]{width:auto;accent-color:var(--green);transform:scale(1.2);m
 .success{color:var(--mint);min-height:22px}
 .form-panel{max-width:420px}
 .form-panel button{width:100%;margin-top:8px}
+.item{background:#303a33;border-radius:10px;padding:13px;margin:10px 0;overflow-wrap:anywhere}
+.item p{margin:7px 0}
+.item small{color:#aab8ad}
+.chat-box{height:190px;overflow-y:auto;background:#171b19;border-radius:9px;padding:10px;margin:10px 0}
+.chat-message{text-align:left;padding:5px 0;border-bottom:1px solid #303a33;overflow-wrap:anywhere}
+.chat-message b{color:var(--mint)}
+.chat-input-row{display:flex;gap:8px}
+.chat-input-row input{margin:0;min-width:0}
+.chat-input-row button{flex-shrink:0}
+.counter{color:var(--mint);font-weight:bold}
 @media(max-width:500px){
 .wrap{padding:8px}
 .panel{padding:15px}
 .board{width:94vw}
 .account-bar{justify-content:center}
+.chat-input-row{flex-direction:column}
 }
 </style>
 </head>
@@ -75,10 +90,14 @@ input[type=checkbox]{width:auto;accent-color:var(--green);transform:scale(1.2);m
 <div class="menu">
 <button onclick="show('setup')">Play Against Bot</button>
 <button onclick="show('online')">Play Online</button>
+<button class="secondary" onclick="show('community');loadComments()">Community</button>
 <button class="secondary" onclick="show('rules')">How to Play</button>
 <button class="secondary" onclick="openAccount()">Account / Profile</button>
 </div>
 </section>
+
+
+<!-- ACCOUNT -->
 
 <section id="account" class="screen">
 <h2>YOUR ACCOUNT</h2>
@@ -103,6 +122,7 @@ input[type=checkbox]{width:auto;accent-color:var(--green);transform:scale(1.2);m
 <h2 id="profileUsername">Player</h2>
 <p>Your rating</p>
 <h1 id="profileRating">1000</h1>
+<p id="adminLabel" class="success" style="display:none">Administrator account</p>
 </div>
 
 <div class="panel form-panel">
@@ -114,6 +134,22 @@ input[type=checkbox]{width:auto;accent-color:var(--green);transform:scale(1.2);m
 <button onclick="changeUsername()">Save Username</button>
 </div>
 
+<div class="panel form-panel">
+<h3>Send Private Feedback</h3>
+<p>Only the administrator can read your feedback.</p>
+<textarea id="feedbackText" maxlength="2000" placeholder="Write your feedback..."></textarea>
+<p class="error" id="feedbackError"></p>
+<p class="success" id="feedbackSuccess"></p>
+<button onclick="sendFeedback()">Send Feedback</button>
+</div>
+
+<div id="adminPanel" class="panel" style="display:none">
+<h3>Administrator Inbox</h3>
+<p>Private feedback sent by players.</p>
+<button onclick="loadAdminFeedback()">Refresh Inbox</button>
+<div id="adminFeedbackList"></div>
+</div>
+
 <div class="row">
 <button class="secondary" onclick="logout()">Logout</button>
 <button class="secondary" onclick="show('home')">Back</button>
@@ -123,6 +159,9 @@ input[type=checkbox]{width:auto;accent-color:var(--green);transform:scale(1.2);m
 <div id="accountMessage" class="success"></div>
 <button class="secondary" onclick="show('home')">Back to Home</button>
 </section>
+
+
+<!-- BOT SETUP -->
 
 <section id="setup" class="screen">
 <h2>PLAY AGAINST BOT</h2>
@@ -155,6 +194,18 @@ input[type=checkbox]{width:auto;accent-color:var(--green);transform:scale(1.2);m
 <option value="0">Unlimited</option>
 </select>
 </div>
+
+<div class="option">
+<label>Increment</label>
+<select id="botIncrement">
+<option value="0" selected>0 seconds</option>
+<option value="1">1 second</option>
+<option value="2">2 seconds</option>
+<option value="3">3 seconds</option>
+<option value="5">5 seconds</option>
+<option value="10">10 seconds</option>
+</select>
+</div>
 </div>
 
 <div class="buttons">
@@ -163,9 +214,13 @@ input[type=checkbox]{width:auto;accent-color:var(--green);transform:scale(1.2);m
 </div>
 </section>
 
+
+<!-- ONLINE SETUP -->
+
 <section id="online" class="screen">
 <h2>PLAY ONLINE</h2>
 <p>Choose how you want to play.</p>
+<p class="counter">Players online: <span id="onlineCount">0</span></p>
 
 <div class="panel">
 <div class="option">
@@ -228,6 +283,34 @@ Rated private game
 <button class="secondary" onclick="show('home')">Back</button>
 </section>
 
+
+<!-- COMMUNITY -->
+
+<section id="community" class="screen">
+<h2>COMMUNITY</h2>
+<p>Share your thoughts with other Mouseslip Chess players.</p>
+
+<div class="panel">
+<h3>Write a Public Comment</h3>
+<textarea id="commentText" maxlength="500" placeholder="Write a comment..."></textarea>
+<p class="small">You must be logged in to post. Maximum 500 characters.</p>
+<p class="error" id="commentError"></p>
+<p class="success" id="commentSuccess"></p>
+<button onclick="postComment()">Post Comment</button>
+</div>
+
+<div class="panel">
+<h3>Recent Comments</h3>
+<button onclick="loadComments()">Refresh Comments</button>
+<div id="commentsList"></div>
+</div>
+
+<button class="secondary" onclick="show('home')">Back to Home</button>
+</section>
+
+
+<!-- RULES -->
+
 <section id="rules" class="screen">
 <h2>HOW TO PLAY</h2>
 <div class="panel">
@@ -236,9 +319,13 @@ Rated private game
 <p>Knights can only slip in the same forward/backward rank direction as the intended move.</p>
 <p>Capturing the opposing king wins. The bot follows the same rules.</p>
 <p>Castling is allowed. Promotion can result in a queen, rook, bishop or knight.</p>
+<p>Online games can be rated or unrated depending on the game type.</p>
 </div>
 <button class="secondary" onclick="show('home')">Back</button>
 </section>
+
+
+<!-- GAME -->
 
 <section id="game" class="screen">
 <h2>MOUSESLIP CHESS</h2>
@@ -259,6 +346,15 @@ Rated private game
 <div id="board" class="board"></div>
 <p id="lastMove" class="small"></p>
 
+<div id="gameChat" class="panel" style="display:none">
+<h3>Match Chat</h3>
+<div id="chatMessages" class="chat-box"></div>
+<div class="chat-input-row">
+<input id="chatInput" maxlength="300" placeholder="Message your opponent...">
+<button onclick="sendChatMessage()">Send</button>
+</div>
+</div>
+
 <div class="row">
 <button class="secondary" onclick="resetGame()">Restart</button>
 <button class="secondary" onclick="resign()">Resign</button>
@@ -268,6 +364,7 @@ Rated private game
 
 </div>
 
+
 <script>
 const socket = (typeof io !== "undefined") ? io() : null;
 
@@ -275,6 +372,8 @@ const GLYPH={
 K:"♔",Q:"♕",R:"♖",B:"♗",N:"♘",P:"♙",
 k:"♚",q:"♛",r:"♜",b:"♝",n:"♞",p:"♟"
 };
+
+const PIECE_VALUES={p:100,n:320,b:330,r:500,q:900,k:20000};
 
 let board=[],turn="w",selected=null,legalForSelected=[];
 let human="w",mode="bot",difficulty=5,room=null,onlineColor=null;
@@ -289,7 +388,12 @@ let accountMode="login";
 let loggedInPlayer=null;
 
 
-// ---------------- ACCOUNT ----------------
+// ---------------- GENERAL ----------------
+
+function show(id){
+document.querySelectorAll(".screen").forEach(x=>x.classList.remove("active"));
+document.getElementById(id).classList.add("active");
+}
 
 async function apiRequest(url,data){
 const response=await fetch(url,{
@@ -307,10 +411,8 @@ if(!response.ok)throw new Error(result.error||"Something went wrong.");
 return result;
 }
 
-function show(id){
-document.querySelectorAll(".screen").forEach(x=>x.classList.remove("active"));
-document.getElementById(id).classList.add("active");
-}
+
+// ---------------- ACCOUNT ----------------
 
 function openAccount(){
 show("account");
@@ -375,11 +477,18 @@ document.getElementById("profileUsername").textContent=loggedInPlayer.username;
 document.getElementById("profileRating").textContent=loggedInPlayer.rating;
 barText.textContent=loggedInPlayer.username+" · "+loggedInPlayer.rating;
 barButton.textContent="Profile";
+
+document.getElementById("adminLabel").style.display=
+loggedInPlayer.is_admin?"block":"none";
+document.getElementById("adminPanel").style.display=
+loggedInPlayer.is_admin?"block":"none";
+
 }else{
 loggedOut.style.display="block";
 loggedIn.style.display="none";
 barText.textContent="Not logged in";
 barButton.textContent="Login / Sign Up";
+document.getElementById("adminPanel").style.display="none";
 }
 }
 
@@ -411,6 +520,136 @@ document.getElementById("accountMessage").textContent=e.message;
 }
 }
 
+async function sendFeedback(){
+const message=document.getElementById("feedbackText").value.trim();
+const error=document.getElementById("feedbackError");
+const success=document.getElementById("feedbackSuccess");
+error.textContent="";
+success.textContent="";
+
+try{
+await apiRequest("/api/feedback",{message});
+document.getElementById("feedbackText").value="";
+success.textContent="Your private feedback has been sent.";
+}catch(e){
+error.textContent=e.message;
+}
+}
+
+
+// ---------------- ADMIN INBOX ----------------
+
+async function loadAdminFeedback(){
+const list=document.getElementById("adminFeedbackList");
+list.textContent="Loading...";
+
+try{
+const result=await apiRequest("/api/admin/feedback");
+list.innerHTML="";
+
+if(!result.feedback.length){
+list.textContent="No feedback yet.";
+return;
+}
+
+result.feedback.forEach(item=>{
+const card=document.createElement("div");
+card.className="item";
+
+const heading=document.createElement("b");
+heading.textContent=item.username+" · "+new Date(item.created_at).toLocaleString();
+
+const message=document.createElement("p");
+message.textContent=item.message;
+
+card.append(heading,message);
+
+if(item.admin_reply){
+const reply=document.createElement("p");
+reply.textContent="Your reply: "+item.admin_reply;
+card.append(reply);
+}else{
+const textarea=document.createElement("textarea");
+textarea.maxLength=2000;
+textarea.placeholder="Write your reply...";
+
+const button=document.createElement("button");
+button.textContent="Send Reply";
+button.onclick=async()=>{
+try{
+await apiRequest("/api/admin/feedback/"+item.id+"/reply",{
+reply:textarea.value.trim()
+});
+loadAdminFeedback();
+}catch(e){
+alert(e.message);
+}
+};
+
+card.append(textarea,button);
+}
+
+list.append(card);
+});
+}catch(e){
+list.textContent=e.message;
+}
+}
+
+
+// ---------------- PUBLIC COMMENTS ----------------
+
+async function loadComments(){
+const list=document.getElementById("commentsList");
+list.textContent="Loading comments...";
+
+try{
+const result=await apiRequest("/api/comments");
+list.innerHTML="";
+
+if(!result.comments.length){
+list.textContent="No comments yet. Be the first to post!";
+return;
+}
+
+result.comments.forEach(item=>{
+const card=document.createElement("div");
+card.className="item";
+
+const heading=document.createElement("b");
+heading.textContent=item.username;
+
+const date=document.createElement("small");
+date.textContent=" · "+new Date(item.created_at).toLocaleString();
+
+const message=document.createElement("p");
+message.textContent=item.message;
+
+card.append(heading,date,message);
+list.append(card);
+});
+}catch(e){
+list.textContent=e.message;
+}
+}
+
+async function postComment(){
+const message=document.getElementById("commentText").value.trim();
+const error=document.getElementById("commentError");
+const success=document.getElementById("commentSuccess");
+error.textContent="";
+success.textContent="";
+
+try{
+await apiRequest("/api/comments",{message});
+document.getElementById("commentText").value="";
+success.textContent="Your comment has been posted.";
+loadComments();
+}catch(e){
+error.textContent=e.message;
+}
+}
+
 
 // ---------------- GAME SETUP ----------------
 
@@ -437,21 +676,26 @@ return [
 function startBot(){
 mode="bot";
 room=null;
+onlineColor=null;
 difficulty=+document.getElementById("difficulty").value;
 
 let c=document.getElementById("colour").value;
 human=c==="random"?(Math.random()<.5?"w":"b"):(c==="white"?"w":"b");
 
 clockInitial=Number(document.getElementById("time").value)*60;
-clockIncrement=0;
+clockIncrement=Number(document.getElementById("botIncrement").value);
 
 beginGame("Bot difficulty "+difficulty+" · You are "+(human==="w"?"White":"Black"));
 }
+
+
+// ---------------- GAME INITIALISATION ----------------
 
 function beginGame(info,timeSeconds=clockInitial,increment=clockIncrement){
 board=initial();
 turn="w";
 selected=null;
+legalForSelected=[];
 gameOver=false;
 castleRights={wK:true,wQ:true,bK:true,bQ:true};
 
@@ -467,6 +711,9 @@ if(clockTimer)clearInterval(clockTimer);
 document.getElementById("gameInfo").textContent=info;
 document.getElementById("lastMove").textContent="";
 document.getElementById("status").textContent="White to move";
+document.getElementById("gameChat").style.display=
+mode==="online"?"block":"none";
+document.getElementById("chatMessages").innerHTML="";
 
 show("game");
 render();
@@ -492,6 +739,7 @@ document.getElementById("blackClock").textContent=formatClock(clocks.b);
 
 function startLocalClock(){
 if(clockInitial===0||clockStarted)return;
+
 clockStarted=true;
 clockActive=turn;
 clockLast=Date.now();
@@ -521,11 +769,6 @@ document.getElementById("status").textContent=
 function switchLocalClock(mover){
 if(clockInitial===0)return;
 
-if(!clockStarted){
-startLocalClock();
-return;
-}
-
 clocks[mover]+=clockIncrement;
 clockActive=turn;
 clockLast=Date.now();
@@ -536,7 +779,7 @@ updateClockDisplay();
 // ---------------- CHESS RULES ----------------
 
 function colorOf(p){
-return !p?"":p==="."?"":p===p.toUpperCase()?"w":"b";
+return !p||p==="."?"":p===p.toUpperCase()?"w":"b";
 }
 
 function inside(r,c){
@@ -547,7 +790,7 @@ function copyBoard(b){
 return b.map(row=>row.slice());
 }
 
-function pseudoMoves(b,r,c){
+function pseudoMoves(b,r,c,rights=castleRights){
 let p=b[r][c],color=colorOf(p),type=p.toLowerCase(),out=[];
 
 if(!p||p===".")return out;
@@ -610,13 +853,13 @@ let home=color==="w"?7:0;
 let kingKey=color+"K";
 let queenKey=color+"Q";
 
-if(r===home&&c===4&&castleRights[kingKey]&&
+if(r===home&&c===4&&rights[kingKey]&&
 b[home][7]===(color==="w"?"R":"r")&&
 !b[home][5]&&!b[home][6]){
 out.push({fr:r,fc:c,tr:home,tc:6,piece:p,capture:"",castle:"K"});
 }
 
-if(r===home&&c===4&&castleRights[queenKey]&&
+if(r===home&&c===4&&rights[queenKey]&&
 b[home][0]===(color==="w"?"R":"r")&&
 !b[home][1]&&!b[home][2]&&!b[home][3]){
 out.push({fr:r,fc:c,tr:home,tc:2,piece:p,capture:"",castle:"Q"});
@@ -673,18 +916,25 @@ if(!b[r][c])return [];
 return pseudoMoves(b,r,c);
 }
 
-function allLegal(color){
+function allMovesFor(b,color,rights=castleRights){
 let out=[];
 for(let r=0;r<8;r++)
 for(let c=0;c<8;c++)
-if(colorOf(board[r][c])===color)
-out.push(...legalMovesFrom(board,r,c));
+if(colorOf(b[r][c])===color)
+out.push(...pseudoMoves(b,r,c,rights));
 return out;
+}
+
+function allLegal(color){
+return allMovesFor(board,color,castleRights);
 }
 
 function same(a,b){
 return a.fr===b.fr&&a.fc===b.fc&&a.tr===b.tr&&a.tc===b.tc;
 }
+
+
+// ---------------- MOUSESLIPS ----------------
 
 function chooseSlip(intended,all){
 let piece=board[intended.fr][intended.fc];
@@ -717,12 +967,142 @@ return "abcdefgh"[m.fc]+(8-m.fr)+" → "+"abcdefgh"[m.tc]+(8-m.tr);
 }
 
 
+// ---------------- BOT SEARCH ----------------
+
+function evaluateBoard(b,botSide){
+let score=0;
+
+for(let r=0;r<8;r++){
+for(let c=0;c<8;c++){
+let p=b[r][c];
+if(!p)continue;
+
+let value=PIECE_VALUES[p.toLowerCase()]||0;
+let side=colorOf(p);
+
+if(p.toLowerCase()==="p"){
+let advance=side==="w"?6-r:r-1;
+value+=advance*7;
+}
+
+if(p.toLowerCase()==="n"||p.toLowerCase()==="b"){
+let centre=3.5-(Math.abs(3.5-r)+Math.abs(3.5-c))/2;
+value+=centre*9;
+}
+
+score+=(side===botSide?value:-value);
+}
+}
+
+return score;
+}
+
+function searchMoveBoard(b,m){
+let moving=b[m.fr][m.fc];
+let promotion=null;
+
+if(moving==="P"&&m.tr===0)promotion="Q";
+if(moving==="p"&&m.tr===7)promotion="q";
+
+return applyRaw(b,m,promotion);
+}
+
+function orderMoves(b,moves){
+return moves.slice().sort((a,bm)=>{
+let ca=b[a.tr][a.tc],cb=b[bm.tr][bm.tc];
+let sa=(ca?PIECE_VALUES[ca.toLowerCase()]:0)-
+(PIECE_VALUES[b[a.fr][a.fc].toLowerCase()]||0)*0.05;
+let sb=(cb?PIECE_VALUES[cb.toLowerCase()]:0)-
+(PIECE_VALUES[b[bm.fr][bm.fc].toLowerCase()]||0)*0.05;
+return sb-sa;
+});
+}
+
+function minimax(b,side,depth,alpha,beta,botSide){
+if(depth===0)return evaluateBoard(b,botSide);
+
+let moves=allMovesFor(b,side,castleRights);
+
+if(!moves.length)return evaluateBoard(b,botSide);
+
+moves=orderMoves(b,moves);
+
+if(moves.length>14&&depth>=2)moves=moves.slice(0,14);
+
+let maximizing=side===botSide;
+let best=maximizing?-Infinity:Infinity;
+let next=side==="w"?"b":"w";
+
+for(let m of moves){
+let nextBoard=searchMoveBoard(b,m);
+
+if(nextBoard[m.tr][m.tc].toLowerCase()==="k"&&
+nextBoard[m.tr][m.tc]!==b[m.fr][m.fc]){
+return maximizing?100000:-100000;
+}
+
+let value=minimax(nextBoard,next,depth-1,alpha,beta,botSide);
+
+if(maximizing){
+best=Math.max(best,value);
+alpha=Math.max(alpha,best);
+}else{
+best=Math.min(best,value);
+beta=Math.min(beta,best);
+}
+
+if(beta<=alpha)break;
+}
+
+return best;
+}
+
+function chooseBotMove(moves){
+let depth=difficulty<=2?1:difficulty<=7?2:3;
+let ordered=orderMoves(board,moves);
+let limit=difficulty<=2?moves.length:difficulty<=4?12:14;
+ordered=ordered.slice(0,limit);
+
+let scored=ordered.map(m=>{
+let nextBoard=searchMoveBoard(board,m);
+let nextSide=turn==="w"?"b":"w";
+let score=minimax(
+nextBoard,nextSide,depth-1,-Infinity,Infinity,turn
+);
+
+if(difficulty<=4)score+=Math.random()*180;
+else if(difficulty<=7)score+=Math.random()*45;
+else score+=Math.random()*8;
+
+return {move:m,score};
+});
+
+scored.sort((a,b)=>b.score-a.score);
+
+if(difficulty===1){
+return ordered[Math.floor(Math.random()*ordered.length)];
+}
+
+if(difficulty===2){
+return scored[Math.floor(Math.random()*Math.min(4,scored.length))].move;
+}
+
+return scored[0].move;
+}
+
+
 // ---------------- MOVE HANDLING ----------------
 
 function performMove(m,send=true){
 if(gameOver)return;
 
 let mover=turn;
+
+// Start the local clock when the first move is made.
+if(mode==="bot"&&!clockStarted&&clockInitial>0){
+startLocalClock();
+}
+
 let actual=m;
 let all=legalMovesFrom(board,m.fr,m.fc);
 
@@ -774,7 +1154,7 @@ promotion
 render();
 
 if(mode==="bot"&&!gameOver&&turn!==human)
-setTimeout(botMove,450);
+setTimeout(botMove,300);
 }
 
 function onSquare(r,c){
@@ -845,7 +1225,7 @@ document.getElementById("status").textContent=
 }
 
 
-// ---------------- BOT ----------------
+// ---------------- BOT TURN ----------------
 
 function botMove(){
 if(gameOver||mode!=="bot"||turn===human)return;
@@ -854,21 +1234,12 @@ let moves=allLegal(turn);
 
 if(!moves.length){
 gameOver=true;
+if(clockTimer)clearInterval(clockTimer);
 document.getElementById("status").textContent="No legal moves. Game over.";
 return;
 }
 
-let scored=moves.map(m=>({
-m,
-score:(m.capture?10:0)+
-(m.capture&&m.capture.toLowerCase()==="q"?8:0)+
-(m.tr===0||m.tr===7?3:0)+
-Math.random()*(11-difficulty)
-}));
-
-scored.sort((a,b)=>b.score-a.score);
-let pool=scored.slice(0,Math.max(1,11-difficulty));
-let chosen=pool[Math.floor(Math.random()*pool.length)].m;
+let chosen=chooseBotMove(moves);
 performMove(chosen,false);
 }
 
@@ -903,12 +1274,13 @@ document.getElementById("status").textContent=
 }
 
 function leaveGame(){
-if(mode==="online"){
-document.getElementById("status").textContent=
-"Leaving the game. If the game has started, disconnecting counts as a forfeit.";
-if(socket)socket.disconnect();
+if(mode==="online"&&socket&&room){
+socket.emit("leave_online",{room});
 }
+
 if(clockTimer)clearInterval(clockTimer);
+gameOver=true;
+room=null;
 show("home");
 }
 
@@ -936,6 +1308,7 @@ return;
 }
 
 searching=true;
+room=null;
 document.getElementById("privateCreate").style.display="none";
 document.getElementById("privateJoin").style.display="none";
 document.getElementById("onlineStatus").textContent="Searching for a player...";
@@ -956,6 +1329,7 @@ document.getElementById("onlineStatus").textContent=
 return;
 }
 
+room=null;
 document.getElementById("privateCreate").style.display="block";
 document.getElementById("privateJoin").style.display="none";
 document.getElementById("onlineStatus").textContent="Creating your lobby...";
@@ -992,15 +1366,61 @@ socket.emit("join_private_lobby",{code});
 
 function cancelSearch(){
 searching=false;
-if(socket)socket.emit("cancel_match");
-document.getElementById("onlineStatus").textContent=
-"Search cancelled.";
+
+if(socket){
+socket.emit("cancel_match");
+if(room)socket.emit("leave_online",{room});
 }
+
+room=null;
+document.getElementById("onlineStatus").textContent="Search cancelled or lobby left.";
+document.getElementById("privateCreate").style.display="none";
+document.getElementById("privateJoin").style.display="none";
+}
+
+
+// ---------------- IN-GAME CHAT ----------------
+
+function addChatMessage(username,message){
+const list=document.getElementById("chatMessages");
+const line=document.createElement("div");
+line.className="chat-message";
+
+const name=document.createElement("b");
+name.textContent=username+": ";
+
+const text=document.createElement("span");
+text.textContent=message;
+
+line.append(name,text);
+list.append(line);
+list.scrollTop=list.scrollHeight;
+}
+
+function sendChatMessage(){
+if(mode!=="online"||!room||!socket)return;
+
+const input=document.getElementById("chatInput");
+const message=input.value.trim();
+
+if(!message)return;
+
+socket.emit("send_game_message",{room,message});
+input.value="";
+}
+
+document.getElementById("chatInput").addEventListener("keydown",e=>{
+if(e.key==="Enter")sendChatMessage();
+});
 
 
 // ---------------- SOCKET EVENTS ----------------
 
 if(socket){
+
+socket.on("online_count",d=>{
+document.getElementById("onlineCount").textContent=d.count;
+});
 
 socket.on("searching",d=>{
 document.getElementById("onlineStatus").textContent=d.message;
@@ -1041,6 +1461,7 @@ d.increment
 );
 
 document.getElementById("onlineStatus").textContent="Opponent connected!";
+socket.emit("request_chat_history",{room});
 });
 
 socket.on("match_cancelled",()=>{
@@ -1072,7 +1493,22 @@ render();
 
 socket.on("invalid_move",d=>{
 document.getElementById("status").textContent=
-d.message||"Move rejected. Please refresh the game.";
+d.message||"Move rejected.";
+});
+
+socket.on("board_sync",d=>{
+if(!d||!d.board)return;
+
+board=d.board.map(row=>row.map(p=>p==="."?"":p));
+castleRights=d.rights;
+turn=d.active;
+clocks=d.clocks;
+clockIncrement=d.increment;
+selected=null;
+legalForSelected=[];
+updateClockDisplay();
+updateStatus();
+render();
 });
 
 socket.on("clock_tick",d=>{
@@ -1092,6 +1528,15 @@ updateClockDisplay();
 
 socket.on("clock_stop",()=>{
 clockStarted=false;
+});
+
+socket.on("chat_history",d=>{
+document.getElementById("chatMessages").innerHTML="";
+(d.messages||[]).forEach(m=>addChatMessage(m.username,m.message));
+});
+
+socket.on("game_message",d=>{
+addChatMessage(d.username,d.message);
 });
 
 socket.on("match_result",d=>{
@@ -1120,6 +1565,7 @@ if(loggedInPlayer&&d.rating!==null&&d.rating!==undefined){
 loggedInPlayer.rating=d.rating;
 updateAccountUI();
 }
+
 refreshAccount();
 });
 
@@ -1139,8 +1585,10 @@ document.getElementById("status").textContent=
 }
 
 
-// Load the account when the page opens.
+// ---------------- STARTUP ----------------
+
 refreshAccount();
+updateDiff();
 </script>
 </body>
 </html>
