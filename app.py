@@ -83,6 +83,19 @@ def database_error(action):
 
 @app.route("/")
 def home():
+@app.route("/sitemap.xml")
+def sitemap():
+    xml = """<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+    <url>
+        <loc>https://mouseslip-chess-1.onrender.com/</loc>
+        <changefreq>weekly</changefreq>
+        <priority>1.0</priority>
+    </url>
+</urlset>"""
+
+    return app.response_class(xml, mimetype="application/xml")
+
     return render_template("index.html")
 
 
