@@ -1,4 +1,3 @@
-
 <!doctype html>
 <html lang="en">
 <head>
@@ -35,7 +34,9 @@ textarea{resize:vertical;min-height:90px;font-family:Arial,sans-serif}
 input[type=checkbox]{width:auto;accent-color:var(--green);transform:scale(1.2);margin-right:8px}
 .buttons{display:flex;gap:12px;justify-content:center;margin:18px auto;max-width:540px}
 .buttons button{flex:1}
-.board{width:min(82vw,560px);aspect-ratio:1;display:grid;grid-template-columns:repeat(8,minmax(0,1fr));grid-template-rows:repeat(8,minmax(0,1fr));margin:18px auto;border:5px solid #303a33;overflow:hidden}
+.board-wrap{position:relative;width:min(82vw,560px);aspect-ratio:1;margin:18px auto}
+.board{width:100%;height:100%;aspect-ratio:auto;display:grid;grid-template-columns:repeat(8,minmax(0,1fr));grid-template-rows:repeat(8,minmax(0,1fr));margin:0;border:5px solid #303a33;overflow:hidden}
+#arrowLayer{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:5}
 .sq{min-width:0;min-height:0;width:100%;height:100%;padding:0;display:flex;align-items:center;justify-content:center;position:relative;font-size:clamp(24px,6.5vw,54px);cursor:pointer;user-select:none;line-height:1}
 .light{background:#f0d9b5}
 .dark{background:#b58863}
@@ -69,7 +70,7 @@ input[type=checkbox]{width:auto;accent-color:var(--green);transform:scale(1.2);m
 @media(max-width:500px){
 .wrap{padding:8px}
 .panel{padding:15px}
-.board{width:94vw}
+.board-wrap{width:94vw}
 .account-bar{justify-content:center}
 .chat-input-row{flex-direction:column}
 }
@@ -342,7 +343,10 @@ Rated private game
 </div>
 </div>
 
-<div id="board" class="board"></div>
+<div class="board-wrap">
+  <div id="board" class="board"></div>
+  <svg id="arrowLayer" viewBox="0 0 1000 1000" preserveAspectRatio="none"></svg>
+</div>
 <p id="lastMove" class="small"></p>
 
 <div id="gameChat" class="panel" style="display:none">
@@ -374,6 +378,8 @@ k:"♚",q:"♛",r:"♜",b:"♝",n:"♞",p:"♟"
 const PIECE_VALUES={p:100,n:320,b:330,r:500,q:900,k:20000};
 
 let board=[],turn="w",selected=null,legalForSelected=[];
+let analysisMarks=[];
+let rightDragStart=null;
 let human="w",mode="bot",difficulty=5,room=null,onlineColor=null;
 let searching=false,gameOver=false;
 let castleRights={wK:true,wQ:true,bK:true,bQ:true};
@@ -691,6 +697,8 @@ beginGame("Bot difficulty "+difficulty+" · You are "+(human==="w"?"White":"Blac
 
 function beginGame(info,timeSeconds=clockInitial,increment=clockIncrement){
 board=initial();
+analysisMarks=[];
+renderAnalysisMarks();
 turn="w";
 selected=null;
 legalForSelected=[];
@@ -1089,6 +1097,151 @@ return scored[0].move;
 }
 
 
+// ---------------- ANALYSIS ARROWS ----------------
+
+function toggleAnalysisMark(mark){
+  const index=analysisMarks.findIndex(existing=>{
+    if(existing.type!==mark.type)return false;
+
+    if(mark.type==="circle"){
+      return existing.r===mark.r&&existing.c===mark.c;
+    }
+
+    return existing.fr===mark.fr&&
+           existing.fc===mark.fc&&
+           existing.tr===mark.tr&&
+           existing.tc===mark.tc;
+  });
+
+  if(index>=0){
+    analysisMarks.splice(index,1);
+  }else{
+    analysisMarks.push(mark);
+  }
+
+  renderAnalysisMarks();
+}
+
+function renderAnalysisMarks(){
+  const svg=document.getElementById("arrowLayer");
+  const boardEl=document.getElementById("board");
+  if(!svg||!boardEl)return;
+
+  svg.innerHTML=`
+    <defs>
+      <marker id="analysisArrowHead"
+        markerWidth="6" markerHeight="6"
+        refX="5" refY="3"
+        orient="auto"
+        markerUnits="strokeWidth">
+        <path d="M0,0 L6,3 L0,6 Z" fill="#20a447"/>
+      </marker>
+    </defs>
+  `;
+
+  const wrapRect=svg.getBoundingClientRect();
+  if(!wrapRect.width||!wrapRect.height)return;
+
+  function center(r,c){
+    const square=boardEl.querySelector(
+      '.sq[data-r="'+r+'"][data-c="'+c+'"]'
+    );
+    if(!square)return null;
+
+    const rect=square.getBoundingClientRect();
+
+    return {
+      x:(rect.left+rect.width/2-wrapRect.left)/wrapRect.width*1000,
+      y:(rect.top+rect.height/2-wrapRect.top)/wrapRect.height*1000
+    };
+  }
+
+  const ns="http://www.w3.org/2000/svg";
+
+  analysisMarks.forEach(mark=>{
+    if(mark.type==="circle"){
+      const point=center(mark.r,mark.c);
+      if(!point)return;
+
+      const circle=document.createElementNS(ns,"circle");
+      circle.setAttribute("cx",point.x);
+      circle.setAttribute("cy",point.y);
+      circle.setAttribute("r","43");
+      circle.setAttribute("fill","none");
+      circle.setAttribute("stroke","#20a447");
+      circle.setAttribute("stroke-width","17");
+      circle.setAttribute("opacity","0.85");
+      svg.appendChild(circle);
+    }
+
+    if(mark.type==="arrow"){
+      const from=center(mark.fr,mark.fc);
+      const to=center(mark.tr,mark.tc);
+      if(!from||!to)return;
+
+      const line=document.createElementNS(ns,"line");
+      line.setAttribute("x1",from.x);
+      line.setAttribute("y1",from.y);
+      line.setAttribute("x2",to.x);
+      line.setAttribute("y2",to.y);
+      line.setAttribute("stroke","#20a447");
+      line.setAttribute("stroke-width","19");
+      line.setAttribute("stroke-linecap","round");
+      line.setAttribute("opacity","0.85");
+      line.setAttribute("marker-end","url(#analysisArrowHead)");
+      svg.appendChild(line);
+    }
+  });
+}
+
+const analysisBoard=document.getElementById("board");
+
+analysisBoard.addEventListener("contextmenu",e=>{
+  e.preventDefault();
+});
+
+analysisBoard.addEventListener("mousedown",e=>{
+  if(e.button!==2)return;
+
+  const square=e.target.closest(".sq");
+  if(!square)return;
+
+  e.preventDefault();
+
+  rightDragStart={
+    r:Number(square.dataset.r),
+    c:Number(square.dataset.c)
+  };
+});
+
+document.addEventListener("mouseup",e=>{
+  if(e.button!==2||!rightDragStart)return;
+
+  const start=rightDragStart;
+  rightDragStart=null;
+
+  const target=document.elementFromPoint(e.clientX,e.clientY);
+  const square=target?.closest(".sq");
+
+  if(!square||!analysisBoard.contains(square))return;
+
+  const r=Number(square.dataset.r);
+  const c=Number(square.dataset.c);
+
+  if(start.r===r&&start.c===c){
+    toggleAnalysisMark({type:"circle",r,c});
+  }else{
+    toggleAnalysisMark({
+      type:"arrow",
+      fr:start.r,
+      fc:start.c,
+      tr:r,
+      tc:c
+    });
+  }
+});
+
+
 // ---------------- MOVE HANDLING ----------------
 
 function performMove(m,send=true){
@@ -1198,6 +1351,8 @@ c=7-vc;
 
 let s=document.createElement("div");
 s.className="sq "+((vr+vc)%2===0?"light":"dark");
+s.dataset.r=r;
+s.dataset.c=c;
 
 if(selected&&selected.r===r&&selected.c===c)s.classList.add("sel");
 
@@ -1210,9 +1365,13 @@ s.textContent=GLYPH[p];
 s.classList.add(colorOf(p)==="w"?"whitepiece":"blackpiece");
 }
 
-s.onclick=()=>onSquare(r,c);
+s.onclick=e=>{
+  if(e.button===0)onSquare(r,c);
+};
 el.appendChild(s);
 }
+
+renderAnalysisMarks();
 }
 
 function updateStatus(){
