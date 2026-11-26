@@ -983,27 +983,46 @@ def online_resign(data=None):
 
 @socketio.on("leave_online")
 def leave_online(data=None):
-    code = (data or {}).get("room")
+    sid = request.sid
 
     with lock:
+        code = sid_room.get(sid)
+
+        if not code:
+            code = (data or {}).get("room")
+
         room = rooms.get(code)
+
         if not room:
+            sid_room.pop(sid, None)
             return
 
-        side = get_side(room, request.sid)
+        side = get_side(room, sid)
+
         if not side:
             return
 
+        other_sid = room["black"] if side == "w" else room["white"]
+
         if room["started"] and room["black"] is not None and not room["over"]:
-            finish_room(code, "b" if side == "w" else "w", "disconnect")
+            winner = "b" if side == "w" else "w"
+            finish_room(code, winner, "disconnect")
         else:
-            other_sid = room["black"] if side == "w" else room["white"]
             if other_sid:
-                socketio.emit("opponent_disconnected", {}, to=other_sid)
+                winner = "b" if side == "w" else "w"
+
+                socketio.emit("match_result", {
+                    "winner": winner,
+                    "loser": side,
+                    "reason": "disconnect",
+                    "rated": False,
+                    "rating_updated": False,
+                    "rating": None
+                }, to=other_sid)
 
             rooms.pop(code, None)
 
-        sid_room.pop(request.sid, None)
+        sid_room.pop(sid, None)
 
 
 # -------------------- DISCONNECT --------------------
@@ -1025,17 +1044,33 @@ def disconnect():
             return
 
         room = rooms.get(code)
+
         if not room or room["over"]:
             return
 
         side = get_side(room, sid)
 
-        if side and room["started"] and room["black"] is not None:
-            finish_room(code, "b" if side == "w" else "w", "disconnect")
+        if not side:
+            return
+
+        other_sid = room["black"] if side == "w" else room["white"]
+
+        if room["started"] and room["black"] is not None:
+            winner = "b" if side == "w" else "w"
+            finish_room(code, winner, "disconnect")
         else:
-            other_sid = room["black"] if side == "w" else room["white"]
             if other_sid:
-                socketio.emit("opponent_disconnected", {}, to=other_sid)
+                winner = "b" if side == "w" else "w"
+
+                socketio.emit("match_result", {
+                    "winner": winner,
+                    "loser": side,
+                    "reason": "disconnect",
+                    "rated": False,
+                    "rating_updated": False,
+                    "rating": None
+                }, to=other_sid)
+
             rooms.pop(code, None)
 
 
