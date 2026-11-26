@@ -83,6 +83,9 @@ def database_error(action):
 
 @app.route("/")
 def home():
+    return render_template("index.html")
+
+
 @app.route("/sitemap.xml")
 def sitemap():
     xml = """<?xml version="1.0" encoding="UTF-8"?>
@@ -96,7 +99,6 @@ def sitemap():
 
     return app.response_class(xml, mimetype="application/xml")
 
-    return render_template("index.html")
 
 
 @app.route("/api/register", methods=["POST"])
