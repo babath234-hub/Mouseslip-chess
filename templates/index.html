@@ -96,7 +96,6 @@ input[type=checkbox]{width:auto;accent-color:var(--green);transform:scale(1.2);m
 </div>
 </section>
 
-
 <!-- ACCOUNT -->
 
 <section id="account" class="screen">
@@ -160,7 +159,6 @@ input[type=checkbox]{width:auto;accent-color:var(--green);transform:scale(1.2);m
 <button class="secondary" onclick="show('home')">Back to Home</button>
 </section>
 
-
 <!-- BOT SETUP -->
 
 <section id="setup" class="screen">
@@ -213,7 +211,6 @@ input[type=checkbox]{width:auto;accent-color:var(--green);transform:scale(1.2);m
 <button onclick="startBot()">Start Game</button>
 </div>
 </section>
-
 
 <!-- ONLINE SETUP -->
 
@@ -283,7 +280,6 @@ Rated private game
 <button class="secondary" onclick="show('home')">Back</button>
 </section>
 
-
 <!-- COMMUNITY -->
 
 <section id="community" class="screen">
@@ -308,7 +304,6 @@ Rated private game
 <button class="secondary" onclick="show('home')">Back to Home</button>
 </section>
 
-
 <!-- RULES -->
 
 <section id="rules" class="screen">
@@ -326,16 +321,8 @@ Rated private game
 <p>Have an idea for a new feature? Share your suggestions in the comments too!</p>
 <p>Want to send me a private message? Click your profile, then select Private Message.</p>
 </div>
-
-Found a problem or a bug? Leave a comment explaining what happened so I can try to fix it.
-
-Have an idea for a new feature? Share it in the comments too! I'd love to hear your suggestions.
-
-**Want to send me a private message?** Click your profile, then select **Private Message** to contact me privately.</p>
-</div>
 <button class="secondary" onclick="show('home')">Back</button>
 </section>
-
 
 <!-- GAME -->
 
@@ -375,7 +362,6 @@ Have an idea for a new feature? Share it in the comments too! I'd love to hear y
 </section>
 
 </div>
-
 
 <script>
 const socket = (typeof io !== "undefined") ? io() : null;
@@ -1581,10 +1567,19 @@ updateAccountUI();
 refreshAccount();
 });
 
+// Fallback for the opponent_disconnected event.
+// If the server sends this event instead of match_result,
+// the remaining player is told that they won.
 socket.on("opponent_disconnected",()=>{
+if(gameOver)return;
+
 gameOver=true;
+if(clockTimer)clearInterval(clockTimer);
+
 document.getElementById("status").textContent=
-"Your opponent disconnected before the game started.";
+"You win! Your opponent disconnected.";
+
+refreshAccount();
 });
 
 socket.on("disconnect",()=>{
