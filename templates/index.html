@@ -764,6 +764,16 @@ function chooseSlip(start,intended,destinations){
 function renderBoard(){
     const element=document.getElementById("board");
     if(!element)return;
+
+    // The board is not initialised while viewing the profile/customisation screen.
+    // Applying a theme there must not try to read board[0][0].
+    const boardIsReady=Array.isArray(board)&&board.length===8&&
+        board.every(row=>Array.isArray(row)&&row.length===8);
+    if(!boardIsReady){
+        applyBoardTheme();
+        return;
+    }
+
     element.innerHTML="";
     const flipped=myColor==="black";
     for(let displayR=0;displayR<8;displayR++){
