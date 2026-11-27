@@ -353,11 +353,11 @@ header{padding:12px}.container{width:96%;margin:14px auto}
         <label>Side to move first</label>
         <select id="challengeSide"><option value="white">White</option><option value="black">Black</option></select>
         <label>Result the player must achieve</label>
-        <select id="challengeGoal"><option value="Draw">Draw</option><option value="Win">Win</option><option value="Lose">Lose</option></select>
+        <select id="challengeGoal"><option value="Win">Win</option><option value="Lose">Lose</option></select>
         <label>Bot difficulty</label>
         <select id="challengeDifficulty"><option value="1">Easy</option><option value="2" selected>Normal</option><option value="3">Hard</option><option value="4">Expert</option></select>
         <label>Challenge title (optional)</label>
-        <input id="challengeTitle" maxlength="80" placeholder="e.g. Draw against the Expert bot">
+        <input id="challengeTitle" maxlength="80" placeholder="e.g. Win against the Expert bot">
         <button class="primary" onclick="submitDailyChallenge()">Submit Challenge to Queue</button>
         <div id="challengeSubmitMessage"></div>
     </div>
