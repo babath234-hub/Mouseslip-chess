@@ -61,6 +61,8 @@ nav{display:flex;gap:7px;flex-wrap:wrap;margin-bottom:18px}
 nav button{background:var(--panel2);border:1px solid var(--border);color:white;padding:9px 12px;border-radius:8px}
 #boardArea{width:min(620px,100%);margin:15px auto;position:relative}
 #board{display:grid;grid-template-columns:repeat(8,1fr);width:100%;aspect-ratio:1;border:3px solid #3a465b;user-select:none;touch-action:manipulation}
+.replay-board{display:grid;grid-template-columns:repeat(8,1fr);width:min(560px,100%);aspect-ratio:1;margin:15px auto;border:3px solid #3a465b}
+.replay-board .square{cursor:default}
 .square{position:relative;display:flex;align-items:center;justify-content:center;font-size:clamp(24px,6vw,53px);cursor:pointer;aspect-ratio:1}
 .square.light{background:var(--light-square)}
 .square.dark{background:var(--dark-square)}
@@ -71,6 +73,8 @@ nav button{background:var(--panel2);border:1px solid var(--border);color:white;p
 .piece{z-index:2;line-height:1;display:inline-block}
 .piece.white-piece{color:#fff;text-shadow:0 1px 2px #111,-1px -1px 0 #222,1px -1px 0 #222,-1px 1px 0 #222,1px 1px 0 #222}
 .piece.black-piece{color:#151515;text-shadow:0 1px 2px #fff8}
+.piece.modern{font-family:Georgia,"Times New Roman",serif}
+.piece.simple{font-family:Arial,sans-serif;font-size:.68em;font-weight:900;line-height:1;border:2px solid currentColor;border-radius:50%;width:1.15em;height:1.15em;display:flex;align-items:center;justify-content:center}
 #arrowLayer{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:4}
 #gameInfo{display:flex;justify-content:space-between;gap:10px;margin:12px 0}
 .clock{background:#242b3c;padding:12px;border-radius:8px;min-width:100px;text-align:center;font-size:22px;font-weight:bold}
@@ -128,6 +132,7 @@ header{padding:12px}.container{width:96%;margin:14px auto}
         <div class="button-grid">
             <button class="menu-button" onclick="showScreen('botSetupScreen')">Play Against Bot<span>Choose a difficulty and time control</span></button>
             <button class="menu-button" onclick="showScreen('onlineSetupScreen')">Play Online<span>Find a random opponent</span></button>
+            <button class="menu-button" onclick="showScreen('liveGamesScreen');loadLiveGames()">Watch Live Games<span>Spectate public games in progress</span></button>
             <button class="menu-button" onclick="showScreen('leaderboardScreen')">Leaderboard<span>See the highest-rated players</span></button>
             <button class="menu-button" onclick="showScreen('tournamentScreen');loadTournament()">Monthly Tournament<span>Join the 32-player knockout</span></button>
             <button class="menu-button" onclick="showScreen('profileScreen');loadMyProfile()">My Profile<span>Statistics, achievements and history</span></button>
@@ -171,14 +176,14 @@ header{padding:12px}.container{width:96%;margin:14px auto}
 <section id="botSetupScreen" class="screen">
     <div class="panel">
         <h2>Play Against Bot</h2>
-        <label>Bot difficulty</label>
-        <select id="botDifficulty"><option value="1">Easy</option><option value="2">Normal</option><option value="3">Hard</option><option value="4">Expert</option></select>
+        <label>Bot difficulty: <strong id="botDifficultyLabel">2 — Normal</strong></label>
+        <input id="botDifficulty" type="range" min="1" max="4" step="1" value="2" oninput="document.getElementById('botDifficultyLabel').textContent=this.value+' — '+(['','Easy','Normal','Hard','Expert'][Number(this.value)])">
         <label>Your colour</label>
         <select id="botColor"><option value="white">White</option><option value="black">Black</option><option value="random">Random</option></select>
         <label>Time control</label>
-        <select id="botSeconds"><option value="0">Unlimited</option><option value="60">1 minute</option><option value="180">3 minutes</option><option value="300" selected>5 minutes</option><option value="600">10 minutes</option><option value="900">15 minutes</option></select>
+        <select id="botSeconds"><option value="0">Unlimited</option><option value="60">1 minute</option><option value="180">3 minutes</option><option value="300" selected>5 minutes</option><option value="600">10 minutes</option><option value="900">15 minutes</option><option value="1800">30 minutes</option></select>
         <label>Increment</label>
-        <select id="botIncrement"><option value="0">0 seconds</option><option value="1">1 second</option><option value="2">2 seconds</option><option value="5">5 seconds</option><option value="10">10 seconds</option></select>
+        <select id="botIncrement"><option value="0">0 seconds</option><option value="1">1 second</option><option value="2">2 seconds</option><option value="3">3 seconds</option><option value="5">5 seconds</option><option value="10">10 seconds</option></select>
         <button class="primary" onclick="startBotGame()">Start Game</button>
         <button class="secondary" onclick="showScreen('homeScreen')">Back</button>
     </div>
@@ -189,9 +194,9 @@ header{padding:12px}.container{width:96%;margin:14px auto}
         <h2>Play Online</h2>
         <p>Find a random opponent. Your rating changes by 10 points for a rated win or loss.</p>
         <label>Time control</label>
-        <select id="onlineSeconds"><option value="60">1 minute</option><option value="180">3 minutes</option><option value="300" selected>5 minutes</option><option value="600">10 minutes</option><option value="900">15 minutes</option></select>
+        <select id="onlineSeconds"><option value="60">1 minute</option><option value="180">3 minutes</option><option value="300" selected>5 minutes</option><option value="600">10 minutes</option><option value="900">15 minutes</option><option value="1800">30 minutes</option></select>
         <label>Increment</label>
-        <select id="onlineIncrement"><option value="0">0 seconds</option><option value="1">1 second</option><option value="2">2 seconds</option><option value="5">5 seconds</option></select>
+        <select id="onlineIncrement"><option value="0">0 seconds</option><option value="1">1 second</option><option value="2">2 seconds</option><option value="3">3 seconds</option><option value="5">5 seconds</option><option value="10">10 seconds</option></select>
         <button class="primary" onclick="findOnlineMatch()">Find Opponent</button>
         <div id="queueStatus"></div>
         <button class="danger hidden" id="cancelQueueButton" onclick="cancelQueue()">Cancel Search</button>
@@ -201,7 +206,7 @@ header{padding:12px}.container{width:96%;margin:14px auto}
         <label>Time control</label>
         <select id="privateSeconds"><option value="0">Unlimited</option><option value="180">3 minutes</option><option value="300" selected>5 minutes</option><option value="600">10 minutes</option></select>
         <label>Increment</label>
-        <select id="privateIncrement"><option value="0">0 seconds</option><option value="2">2 seconds</option><option value="5">5 seconds</option></select>
+        <select id="privateIncrement"><option value="0">0 seconds</option><option value="1">1 second</option><option value="2">2 seconds</option><option value="3">3 seconds</option><option value="5">5 seconds</option><option value="10">10 seconds</option></select>
         <label>Rated game?</label>
         <select id="privateRated"><option value="false">Unrated</option><option value="true">Rated</option></select>
         <button class="primary" onclick="createPrivateLobby()">Create Private Lobby</button>
@@ -209,6 +214,29 @@ header{padding:12px}.container{width:96%;margin:14px auto}
         <label>Join with room code</label><input id="joinRoomCode" maxlength="6" placeholder="ABC123">
         <button class="secondary" onclick="joinPrivateLobby()">Join Lobby</button>
         <div id="privateStatus"></div>
+    </div>
+</section>
+
+<section id="liveGamesScreen" class="screen">
+    <div class="panel">
+        <h2>Live Games</h2>
+        <p>Watch public Mouseslip Chess games in progress.</p>
+        <button class="secondary" onclick="loadLiveGames()">Refresh Games</button>
+        <div id="liveGamesList">Loading live games...</div>
+    </div>
+</section>
+
+<section id="replayScreen" class="screen">
+    <div class="panel">
+        <h2 id="replayTitle">Game Replay</h2>
+        <div id="replayBoard" class="replay-board"></div>
+        <p id="replayMoveLabel">Starting position</p>
+        <div class="row">
+            <button class="secondary" onclick="replayFirst()">First</button>
+            <button class="secondary" onclick="replayBack()">Previous</button>
+            <button class="primary" onclick="replayNext()">Next</button>
+            <button class="secondary" onclick="replayLast()">Last</button>
+        </div>
     </div>
 </section>
 
@@ -223,6 +251,16 @@ header{padding:12px}.container{width:96%;margin:14px auto}
         </table></div>
         <button class="secondary" onclick="loadSeasonalLeaderboard()">Seasonal Rankings</button>
         <div id="seasonalRows"></div>
+    </div>
+</section>
+
+<section id="publicProfileScreen" class="screen">
+    <div class="panel">
+        <h2 id="publicProfileTitle">Player Profile</h2>
+        <div id="publicProfileDetails">Loading profile...</div>
+        <div id="publicProfileStats" class="stat-grid"></div>
+        <h3>Achievements</h3><div id="publicProfileAchievements" class="button-grid"></div>
+        <h3>Recent Games</h3><div id="publicProfileHistory"></div>
     </div>
 </section>
 
@@ -292,13 +330,20 @@ header{padding:12px}.container{width:96%;margin:14px auto}
         <button class="primary" onclick="postComment()">Post Comment</button>
         <div id="commentMessage"></div>
     </div>
+    <div class="panel">
+        <h2>Private Feedback</h2>
+        <p>Send feedback privately to the Mouseslip Chess admin.</p>
+        <textarea id="feedbackInput" maxlength="2000" placeholder="Your feedback..."></textarea>
+        <button class="secondary" onclick="sendFeedback()">Send Private Feedback</button>
+        <div id="feedbackMessage"></div>
+    </div>
 </section>
 
 <section id="rulesScreen" class="screen">
     <div class="panel">
         <h2>How to Play Mouseslip Chess</h2>
         <h3>The objective</h3><p>Capture your opponent's king to win.</p>
-        <h3>Mouseslips</h3><p>When you choose a destination, your move may slip to another eligible legal destination. Captures can also be affected.</p>
+        <h3>Mouseslips</h3><p>Your move always slips to a nearby eligible legal destination whenever one exists. If there is no eligible alternative, your intended move is played. Captures can also be affected.</p>
         <h3>Knights</h3><p>Knights have a special mouseslip rule: alternative destinations must follow the same rank direction as the intended move.</p>
         <h3>Promotion</h3><p>Pawns reaching the final rank can promote to a queen, rook, bishop or knight.</p>
         <h3>Castling</h3><p>Castling is available when the relevant rights and squares allow it.</p>
@@ -316,12 +361,13 @@ header{padding:12px}.container{width:96%;margin:14px auto}
         <div id="gameStatus">Your turn</div>
         <div id="boardArea"><div id="board"></div><svg id="arrowLayer"></svg></div>
         <div class="row">
-            <button class="secondary" onclick="restartGame()">Restart</button>
-            <button class="danger" onclick="resignGame()">Resign</button>
+            <button class="secondary" id="restartGameButton" onclick="restartGame()">Restart</button>
+            <button class="danger" id="resignGameButton" onclick="resignGame()">Resign</button>
+            <button class="success hidden" id="rematchButton" onclick="requestRematch()">Rematch</button>
             <button class="secondary" onclick="showScreen('homeScreen')">Menu</button>
         </div>
     </div>
-    <div class="panel">
+    <div class="panel" id="gameChatPanel">
         <h3>Game Chat</h3>
         <div id="chatMessages"></div>
         <input id="chatInput" maxlength="300" placeholder="Message">
@@ -347,7 +393,11 @@ let selectedSquare=null,legalSquares=[],board=[],currentTurn="white";
 let gameOver=false,queueSearching=false,privateRoomCode=null;
 let botDifficulty=2,botColor="white",botTime=300,botIncrement=0;
 let whiteTime=300,blackTime=300,clockInterval=null,lastMove=null;
+let gameUnlimited=false,isTournamentGame=false;
+let localEnPassant=null;
+let localCastlingRights={whiteKing:true,whiteQueen:true,blackKing:true,blackQueen:true};
 let gameMoves=[],customBoardTheme="classic",customPieceTheme="classic";
+let replayStates=[],replayMoves=[],replayIndex=0;
 let gameStartTime=0,analysisArrows=[];
 
 /* SCREEN NAVIGATION */
@@ -466,7 +516,7 @@ async function login(){
     const password=document.getElementById("loginPassword").value;
     try{
         const data=await api("/api/login",{method:"POST",body:JSON.stringify({username,password})});
-        currentUser=data.player||data.user;updateAccountUI();
+        currentUser=data.player||data.user;updateAccountUI();socket.emit("register_presence");
         showMessage("accountMessage","Logged in successfully.");
     }catch(error){showMessage("accountMessage",error.message,true)}
 }
@@ -475,12 +525,13 @@ async function register(){
     const password=document.getElementById("registerPassword").value;
     try{
         const data=await api("/api/register",{method:"POST",body:JSON.stringify({username,password})});
-        currentUser=data.player||data.user;updateAccountUI();
+        currentUser=data.player||data.user;updateAccountUI();socket.emit("register_presence");
         showMessage("accountMessage","Account created successfully.");
     }catch(error){showMessage("accountMessage",error.message,true)}
 }
 async function logout(){
     try{
+        socket.emit("unregister_presence");
         await api("/api/logout",{method:"POST"});
         currentUser=null;updateAccountUI();
         screenHistory=[];
@@ -502,23 +553,60 @@ async function changeUsername(){
 async function loadLeaderboard(){
     const search=document.getElementById("leaderboardSearch").value.trim();
     try{
-        const data=await api("/api/leaderboard"+(search?"?search="+encodeURIComponent(search):""));
+        const data=await api("/api/leaderboard"+(search?"?q="+encodeURIComponent(search):""));
         const players=data.players||data.leaderboard||[];
         document.getElementById("leaderboardRows").innerHTML=players.map((player,index)=>`
-            <tr><td>${player.rank||index+1}</td><td>${escapeHTML(player.username)}</td><td>${player.rating}</td></tr>
+            <tr><td>${player.rank||index+1}</td><td><button class="secondary" onclick="viewPublicProfile('${escapeHTML(player.username)}')">${escapeHTML(player.username)}</button></td><td>${player.rating}</td></tr>
         `).join("")||"<tr><td colspan='3'>No players found.</td></tr>";
     }catch(error){
         document.getElementById("leaderboardRows").innerHTML=`<tr><td colspan="3">${escapeHTML(error.message)}</td></tr>`;
     }
 }
 async function loadSeasonalLeaderboard(){
-    document.getElementById("seasonalRows").innerHTML="<p>Seasonal rankings are not available yet.</p>";
+    const container=document.getElementById("seasonalRows");
+    container.textContent="Loading seasonal rankings...";
+    try{
+        const data=await api("/api/seasonal-leaderboard");
+        const players=data.players||[];
+        container.innerHTML=players.map((player,index)=>`
+            <div class="match-card">${player.rank||index+1}. <strong>${escapeHTML(player.username)}</strong> — ${Number(player.monthly_wins||0)} wins · Rating ${Number(player.rating||0)}</div>
+        `).join("")||"<p>No seasonal games recorded yet.</p>";
+    }catch(error){container.textContent=error.message}
+}
+
+// PUBLIC PLAYER PROFILES
+async function viewPublicProfile(username){
+    try{
+        const data=await api("/api/profile/"+encodeURIComponent(username));
+        const player=data.profile||data.player||{},stats=data.stats||player.stats||{};
+        document.getElementById("publicProfileTitle").textContent=player.username||username;
+        document.getElementById("publicProfileDetails").textContent="Rating: "+Number(player.rating||0)+" · Global rank: "+(player.rank||"—");
+        const fields=[
+            ["Games played",stats.games_played||0],["Wins",stats.wins||0],
+            ["Losses",stats.losses||0],["Current win streak",stats.current_win_streak||0],
+            ["Longest win streak",stats.longest_win_streak||0],
+            ["Mouseslips",stats.mouseslips||0],["Normal moves",stats.normal_moves||0],
+            ["Slipped captures",stats.slipped_captures||0]
+        ];
+        document.getElementById("publicProfileStats").innerHTML=fields.map(([label,value])=>`
+            <div class="stat-card">${escapeHTML(label)}<strong>${escapeHTML(value)}</strong></div>
+        `).join("");
+        document.getElementById("publicProfileAchievements").innerHTML=(data.achievements||[]).map(item=>`
+            <div class="badge-card"><strong>${escapeHTML(item.name||item.achievement_name||"Achievement")}</strong></div>
+        `).join("")||"<p>No achievements yet.</p>";
+        document.getElementById("publicProfileHistory").innerHTML=(data.history||[]).slice(0,20).map(match=>`
+            <div class="match-card"><strong>${escapeHTML(match.winner_side||"Unknown")} won</strong>
+            <small>${escapeHTML(match.created_at||"")}</small>
+            ${match.match_id?`<button class="secondary" onclick="viewReplay('${escapeHTML(match.match_id)}')">View Replay</button>`:""}</div>
+        `).join("")||"<p>No completed games yet.</p>";
+        showScreen("publicProfileScreen");
+    }catch(error){alert("Could not load profile: "+error.message)}
 }
 
 // BOT GAME
 function startBotGame(){
     if(!currentUser){showScreen("accountScreen");showMessage("accountMessage","Log in before playing.");return}
-    gameMode="bot";
+    gameMode="bot";gameUnlimited=false;isTournamentGame=false;
     botDifficulty=Number(document.getElementById("botDifficulty").value);
     botColor=document.getElementById("botColor").value;
     botTime=Number(document.getElementById("botSeconds").value);
@@ -526,6 +614,7 @@ function startBotGame(){
     if(botColor==="random")botColor=Math.random()<.5?"white":"black";
     myColor=botColor;board=initialBoard();currentTurn="white";gameOver=false;
     selectedSquare=null;legalSquares=[];lastMove=null;gameMoves=[];
+    localEnPassant=null;localCastlingRights={whiteKing:true,whiteQueen:true,blackKing:true,blackQueen:true};
     whiteTime=botTime;blackTime=botTime;gameStartTime=Date.now();
     document.getElementById("gameTitle").textContent="Play Against Bot";
     document.getElementById("gameOpponent").textContent="Bot — Difficulty "+botDifficulty;
@@ -571,6 +660,7 @@ function getLegalMoves(r,c){
         for(const dc of [-1,1]){
             const nr=r+direction,nc=c+dc;
             if(inBounds(nr,nc)&&board[nr][nc]!=="."&&colorOf(board[nr][nc])!==color)moves.push([nr,nc]);
+            if(localEnPassant&&localEnPassant[0]===nr&&localEnPassant[1]===nc)moves.push([nr,nc]);
         }
     }
     if(type==="n"){
@@ -579,9 +669,11 @@ function getLegalMoves(r,c){
     if(type==="k"){
         for(const [dr,dc] of [[-1,-1],[-1,0],[-1,1],[0,-1],[0,1],[1,-1],[1,0],[1,1]])add(r+dr,c+dc);
         const home=color==="white"?7:0,king=color==="white"?"K":"k",rook=color==="white"?"R":"r";
+        const kingSide=color==="white"?"whiteKing":"blackKing";
+        const queenSide=color==="white"?"whiteQueen":"blackQueen";
         if(r===home&&c===4&&piece===king){
-            if(board[home][7]===rook&&board[home][5]==="."&&board[home][6]===".")moves.push([home,6]);
-            if(board[home][0]===rook&&board[home][1]==="."&&board[home][2]==="."&&board[home][3]===".")moves.push([home,2]);
+            if(localCastlingRights[kingSide]&&board[home][7]===rook&&board[home][5]==="."&&board[home][6]===".")moves.push([home,6]);
+            if(localCastlingRights[queenSide]&&board[home][0]===rook&&board[home][1]==="."&&board[home][2]==="."&&board[home][3]===".")moves.push([home,2]);
         }
     }
     const directions=[];
@@ -601,28 +693,64 @@ function getLegalMoves(r,c){
 function applyLocalMove(start,end,promotion="q"){
     const [r,c]=start,[nr,nc]=end,piece=board[r][c];
     if(!piece||piece===".")return;
-    const type=piece.toLowerCase(),color=colorOf(piece),captured=board[nr][nc];
+    const type=piece.toLowerCase(),color=colorOf(piece);
+    let captured=board[nr][nc];
+    const oldEnPassant=localEnPassant;
+    localEnPassant=null;
     board[r][c]=".";
+    if(type==="p"&&oldEnPassant&&nr===oldEnPassant[0]&&nc===oldEnPassant[1]&&c!==nc&&captured==="."){
+        captured=board[r][nc];board[r][nc]=".";
+    }
     if(type==="k"&&Math.abs(nc-c)===2){
         if(nc===6){board[r][5]=board[r][7];board[r][7]="."}
         else{board[r][3]=board[r][0];board[r][0]="."}
     }
+    if(type==="p"&&Math.abs(nr-r)===2)localEnPassant=[(nr+r)/2,c];
+    if(type==="k"){
+        localCastlingRights[color==="white"?"whiteKing":"blackKing"]=false;
+        localCastlingRights[color==="white"?"whiteQueen":"blackQueen"]=false;
+    }
+    if(type==="r"){
+        if(color==="white"&&r===7&&c===0)localCastlingRights.whiteQueen=false;
+        if(color==="white"&&r===7&&c===7)localCastlingRights.whiteKing=false;
+        if(color==="black"&&r===0&&c===0)localCastlingRights.blackQueen=false;
+        if(color==="black"&&r===0&&c===7)localCastlingRights.blackKing=false;
+    }
+    if(nr===7&&nc===0)localCastlingRights.whiteQueen=false;
+    if(nr===7&&nc===7)localCastlingRights.whiteKing=false;
+    if(nr===0&&nc===0)localCastlingRights.blackQueen=false;
+    if(nr===0&&nc===7)localCastlingRights.blackKing=false;
     if(type==="p"&&(nr===0||nr===7)){
         const chosen=promotion||"q";
         board[nr][nc]=color==="white"?chosen.toUpperCase():chosen.toLowerCase();
     }else board[nr][nc]=piece;
     lastMove={from:start,to:end};
-    gameMoves.push({from:squareName(r,c),to:squareName(nr,nc),piece,captured});
+    const intendedSquare=window.lastIntendedSquare||squareName(nr,nc);
+    gameMoves.push({from:squareName(r,c),to:squareName(nr,nc),piece,captured,intended_to:intendedSquare,slipped:intendedSquare!==squareName(nr,nc)});
+    window.lastIntendedSquare=null;
     return captured;
 }
 function squareName(r,c){return FILES[c]+(8-r)}
-function randomPromotion(){return ["q","r","b","n"][Math.floor(Math.random()*4)]}
+function requestedPromotion(){
+    const answer=prompt("Choose promotion: Q = Queen, R = Rook, B = Bishop, N = Knight","q");
+    const chosen=String(answer||"q").trim().toLowerCase();
+    return ["q","r","b","n"].includes(chosen)?chosen:"q";
+}
+function slipPromotion(intended="q"){
+    const alternatives=["q","r","b","n"].filter(piece=>piece!==intended);
+    return alternatives[Math.floor(Math.random()*alternatives.length)];
+}
+function randomPromotion(){return slipPromotion(["q","r","b","n"][Math.floor(Math.random()*4)])}
 
 // MOUSESLIP
 function chooseSlip(start,intended,destinations){
     if(!destinations.length)return intended;
     const piece=board[start[0]][start[1]],isKnight=piece.toLowerCase()==="n";
-    let alternatives=destinations.filter(move=>move[0]!==intended[0]||move[1]!==intended[1]);
+    let alternatives=destinations.filter(move=>
+        (move[0]!==intended[0]||move[1]!==intended[1])&&
+        (isKnight||
+            (Math.abs(move[0]-intended[0])<=1&&Math.abs(move[1]-intended[1])<=1))
+    );
     if(isKnight){
         const intendedDirection=Math.sign(intended[0]-start[0]);
         alternatives=alternatives.filter(move=>Math.sign(move[0]-start[0])===intendedDirection);
@@ -652,7 +780,8 @@ function renderBoard(){
             const piece=board[r][c];
             if(piece!=="."){
                 const pieceElement=document.createElement("span");
-                pieceElement.className="piece "+(colorOf(piece)==="white"?"white-piece":"black-piece");pieceElement.textContent=PIECES[piece]||piece;
+                pieceElement.className="piece "+(colorOf(piece)==="white"?"white-piece":"black-piece")+" "+(customPieceTheme||"classic");
+                pieceElement.textContent=customPieceTheme==="simple"?piece.toUpperCase():(PIECES[piece]||piece);
                 square.appendChild(pieceElement);
             }
             square.addEventListener("click",()=>handleSquareClick(r,c));
@@ -675,7 +804,7 @@ function applyBoardTheme(){
 
 // PLAYER INPUT
 function handleSquareClick(r,c){
-    if(gameOver)return;
+    if(gameOver||gameMode==="spectator")return;
     const piece=board[r][c];
     if((gameMode==="online"||gameMode==="bot")&&currentTurn!==myColor)return;
     if(!selectedSquare){
@@ -698,8 +827,9 @@ function handleSquareClick(r,c){
     const start=selectedSquare;
     const slipped=chooseSlip(start,intended,legalSquares);
     selectedSquare=null;legalSquares=[];
+    window.lastIntendedSquare=squareName(intended[0],intended[1]);
     if(gameMode==="online"){
-        const promotion=board[start[0]][start[1]].toLowerCase()==="p"&&(slipped[0]===0||slipped[0]===7)?randomPromotion():"q";
+        const promotion=board[start[0]][start[1]].toLowerCase()==="p"&&(slipped[0]===0||slipped[0]===7)?requestedPromotion():"q";
         socket.emit("online_move",{
             from:squareName(start[0],start[1]),
             to:squareName(slipped[0],slipped[1]),
@@ -709,7 +839,8 @@ function handleSquareClick(r,c){
         return;
     }
     const movingColor=currentTurn;
-    const captured=applyLocalMove(start,slipped,randomPromotion());
+    const promotion=board[start[0]][start[1]].toLowerCase()==="p"&&(slipped[0]===0||slipped[0]===7)?slipPromotion(requestedPromotion()):"q";
+    const captured=applyLocalMove(start,slipped,promotion);
     if(captured&&captured.toLowerCase()==="k"){endLocalGame(movingColor,"king captured");return}
     currentTurn=movingColor==="white"?"black":"white";
     if(movingColor===myColor&&botIncrement){
@@ -742,13 +873,16 @@ function evaluateBoard(){
 function chooseBotMove(){
     const moves=allMovesFor(currentTurn);
     if(!moves.length)return null;
-    if(botDifficulty===1||Math.random()<.25)return moves[Math.floor(Math.random()*moves.length)];
+    const randomness={1:1,2:.30,3:.10,4:.02}[botDifficulty]??.30;
+    if(Math.random()<randomness)return moves[Math.floor(Math.random()*moves.length)];
     let bestMove=null,bestScore=currentTurn==="white"?-Infinity:Infinity;
     for(const move of moves){
-        const oldBoard=copyBoard(board);
+        const oldBoard=copyBoard(board),oldEp=localEnPassant;
+        const oldRights={...localCastlingRights},oldLastMove=lastMove;
         applyLocalMove(move.from,move.to,"q");
         const score=evaluateBoard();
-        board=oldBoard;gameMoves.pop();lastMove=null;
+        board=oldBoard;localEnPassant=oldEp;localCastlingRights=oldRights;
+        gameMoves.pop();lastMove=oldLastMove;
         if((currentTurn==="white"&&score>bestScore)||(currentTurn==="black"&&score<bestScore)){
             bestScore=score;bestMove=move;
         }
@@ -784,15 +918,14 @@ function formatTime(seconds){
     return minutes+":"+String(remainder).padStart(2,"0");
 }
 function updateClocks(){
-    const unlimitedBot=gameMode==="bot"&&botTime===0;
-    document.getElementById("whiteClock").textContent=unlimitedBot?"∞":formatTime(whiteTime);
-    document.getElementById("blackClock").textContent=unlimitedBot?"∞":formatTime(blackTime);
+    const unlimited=gameUnlimited||(gameMode==="bot"&&botTime===0);
+    document.getElementById("whiteClock").textContent=unlimited?"∞":formatTime(whiteTime);
+    document.getElementById("blackClock").textContent=unlimited?"∞":formatTime(blackTime);
     document.getElementById("whiteClock").classList.toggle("active",currentTurn==="white");
     document.getElementById("blackClock").classList.toggle("active",currentTurn==="black");
 }
 function startClock(){
     stopClock();
-    if(gameMode==="online"&&!whiteTime&&!blackTime)return;
     updateClocks();
     clockInterval=setInterval(()=>{
         if(gameOver)return;
@@ -806,10 +939,40 @@ function startClock(){
 }
 function stopClock(){if(clockInterval){clearInterval(clockInterval);clockInterval=null}}
 
+// LIVE GAMES AND SPECTATING
+async function loadLiveGames(){
+    const container=document.getElementById("liveGamesList");
+    container.textContent="Loading live games...";
+    try{
+        const data=await api("/api/live-games");
+        const games=data.games||[];
+        container.innerHTML=games.map(game=>`
+            <div class="match-card">
+                <strong>${escapeHTML(game.white)} vs ${escapeHTML(game.black)}</strong>
+                <p>${game.rated?"Rated":"Unrated"} · ${game.tournament?"Tournament":"Public game"} · ${game.turn==="white"?"White":"Black"} to move</p>
+                <button class="primary" onclick="watchLiveGame('${escapeHTML(game.room)}')">Watch Game</button>
+            </div>
+        `).join("")||"<p>No public games are live right now.</p>";
+    }catch(error){container.textContent=error.message}
+}
+function watchLiveGame(code){
+    gameMode="spectator";gameUnlimited=false;isTournamentGame=false;
+    currentGame=code;myColor="white";gameOver=false;selectedSquare=null;legalSquares=[];
+    document.getElementById("gameTitle").textContent="Watching Live Game";
+    document.getElementById("gameOpponent").textContent="Spectator mode";
+    document.getElementById("gameChatPanel").classList.add("hidden");
+    document.getElementById("restartGameButton").classList.add("hidden");
+    document.getElementById("resignGameButton").classList.add("hidden");
+    document.getElementById("rematchButton").classList.add("hidden");
+    document.getElementById("gameStatus").textContent="Connecting to live game...";
+    showScreen("gameScreen");
+    socket.emit("spectate_game",{room:code});
+}
+
 // ONLINE MATCHMAKING
 function findOnlineMatch(){
     if(!requireLogin())return;
-    gameMode="online";queueSearching=true;
+    gameMode="online";gameUnlimited=false;isTournamentGame=false;queueSearching=true;
     document.getElementById("queueStatus").textContent="Searching for an opponent...";
     document.getElementById("cancelQueueButton").classList.remove("hidden");
     socket.emit("find_match",{
@@ -825,7 +988,7 @@ async function cancelQueue(){
 }
 function createPrivateLobby(){
     if(!requireLogin())return;
-    gameMode="online";
+    gameMode="online";gameUnlimited=false;isTournamentGame=false;
     socket.emit("create_private_lobby",{
         seconds:Number(document.getElementById("privateSeconds").value),
         increment:Number(document.getElementById("privateIncrement").value),
@@ -842,6 +1005,26 @@ function joinPrivateLobby(){
 }
 
 // SOCKET EVENTS
+socket.on("invite_status",data=>showMessage("friendMessage",data.message||"Invitation sent."));
+socket.on("invite_error",data=>showMessage("friendMessage",data.error||"Invitation failed.",true));
+socket.on("invite_declined",data=>showMessage("friendMessage",data.message||"Invitation declined.",true));
+socket.on("game_invite",data=>{
+    const accept=confirm(data.username+" invited you to a 5-minute Mouseslip Chess game. Accept?");
+    socket.emit("respond_game_invite",{invite_id:data.invite_id,accept});
+});
+socket.on("spectator_error",data=>{
+    document.getElementById("gameStatus").textContent=data.error||"Could not watch this game.";
+});
+socket.on("rematch_status",data=>{
+    document.getElementById("gameStatus").textContent=data.message||"Rematch update.";
+});
+socket.on("rematch_error",data=>{
+    document.getElementById("gameStatus").textContent=data.error||"Rematch unavailable.";
+});
+socket.on("rematch_offer",data=>{
+    const accept=confirm((data.username||"Your opponent")+" wants a rematch. Accept?");
+    socket.emit("respond_rematch",{room:data.room||currentGame,accept});
+});
 socket.on("queue_joined",data=>{
     document.getElementById("queueStatus").textContent=data.message||"Searching...";
 });
@@ -849,18 +1032,27 @@ socket.on("match_error",data=>{
     queueSearching=false;
     document.getElementById("queueStatus").textContent=data.error||"Could not find a match.";
     document.getElementById("privateStatus").textContent=data.error||"Could not join the lobby.";
+    if(gameMode==="spectator")document.getElementById("gameStatus").textContent=data.error||"Could not join game.";
 });
 socket.on("private_lobby_created",data=>{
     privateRoomCode=data.room||data.code;
-    document.getElementById("privateStatus").textContent="Your room code is: "+privateRoomCode;
+    document.getElementById("privateStatus").innerHTML=
+        "<strong style='font-size:24px;letter-spacing:3px'>"+escapeHTML(privateRoomCode)+"</strong>"+
+        "<p>Share this code with your opponent.</p>";
 });
 socket.on("match_found",data=>{
     queueSearching=false;gameMode="online";myColor=data.color;currentGame=data.room;
     gameOver=false;selectedSquare=null;legalSquares=[];lastMove=null;gameMoves=[];
+    gameUnlimited=!!data.unlimited||Number(data.seconds)===0;
+    isTournamentGame=!!data.tournament;
     board=initialBoard();currentTurn="white";
-    whiteTime=Number(data.seconds);blackTime=Number(data.seconds);
-    document.getElementById("gameTitle").textContent=data.rated?"Rated Online Game":"Private Game";
+    whiteTime=gameUnlimited?0:Number(data.seconds);blackTime=gameUnlimited?0:Number(data.seconds);
+    document.getElementById("gameTitle").textContent=data.tournament?"Tournament Match":data.rated?"Rated Online Game":"Private Game";
     document.getElementById("gameOpponent").textContent="Playing against "+(data.opponent||"Opponent");
+    document.getElementById("gameChatPanel").classList.remove("hidden");
+    document.getElementById("restartGameButton").classList.remove("hidden");
+    document.getElementById("resignGameButton").classList.remove("hidden");
+    document.getElementById("rematchButton").classList.add("hidden");
     document.getElementById("queueStatus").textContent="";
     document.getElementById("cancelQueueButton").classList.add("hidden");
     showScreen("gameScreen");renderBoard();startClock();
@@ -869,8 +1061,19 @@ socket.on("match_found",data=>{
 socket.on("game_started",data=>{
     if(data.board)board=data.board;
     if(data.turn)currentTurn=data.turn;
+    gameUnlimited=!!data.unlimited;
+    isTournamentGame=!!data.tournament;
     whiteTime=data.white_time??whiteTime;blackTime=data.black_time??blackTime;
     gameMoves=data.moves||[];renderBoard();updateClocks();
+});
+socket.on("clock_update",data=>{
+    whiteTime=Number(data.white_time??whiteTime);
+    blackTime=Number(data.black_time??blackTime);
+    if(data.turn)currentTurn=data.turn;
+    updateClocks();
+});
+socket.on("tournament_waiting",data=>{
+    document.getElementById("tournamentStatus").textContent=data.message||"Waiting for your opponent to open the match.";
 });
 socket.on("move_made",data=>{
     board=data.board;currentTurn=data.turn;
@@ -882,15 +1085,20 @@ socket.on("move_made",data=>{
     }
     selectedSquare=null;legalSquares=[];
     renderBoard();updateClocks();
-    document.getElementById("gameStatus").textContent=currentTurn===myColor?"Your turn":"Opponent's turn";
+    document.getElementById("gameStatus").textContent=gameMode==="spectator"?(currentTurn==="white"?"White":"Black")+" to move":currentTurn===myColor?"Your turn":"Opponent's turn";
 });
 socket.on("move_error",data=>{
     document.getElementById("gameStatus").textContent=data.error||"Move rejected.";
 });
 socket.on("match_result",data=>{
     gameOver=true;stopClock();
+    if(gameMode==="spectator"){
+        document.getElementById("gameStatus").textContent="Game finished — "+(data.winner==="white"?"White":"Black")+" won ("+(data.reason||"finished")+")";
+        return;
+    }
     const won=data.winner===myColor;
     document.getElementById("gameStatus").textContent=(won?"You won!":"You lost!")+" — "+(data.reason||"Game finished");
+    if(gameMode==="online"&&!isTournamentGame)document.getElementById("rematchButton").classList.remove("hidden");
     if(data.ratings){
         const rating=data.ratings[myColor];
         if(rating&&currentUser){currentUser.rating=rating;updateAccountUI()}
@@ -908,6 +1116,11 @@ function parseSquare(square){
 }
 
 // GAME CONTROLS
+function requestRematch(){
+    if(gameMode!=="online"||!currentGame)return;
+    document.getElementById("gameStatus").textContent="Sending rematch request...";
+    socket.emit("request_rematch",{room:currentGame});
+}
 function resignGame(){
     if(gameMode==="online")socket.emit("resign");
     else endLocalGame(myColor==="white"?"black":"white","resignation");
@@ -927,6 +1140,7 @@ function addChatMessage(username,message){
     container.scrollTop=container.scrollHeight;
 }
 function sendChat(){
+    if(gameMode==="spectator")return;
     const input=document.getElementById("chatInput"),message=input.value.trim();
     if(!message)return;
     if(gameMode!=="online"){addChatMessage("You",message);input.value="";return}
@@ -966,11 +1180,13 @@ async function loadTournament(){
                 : data.my_entry_joined
                     ? "<p>You have joined. Check in when all 32 players have joined.</p>"
                     : "";
+        const championName=tournament.champion_id?(data.player_names||{})[tournament.champion_id]:"";
+        const championText=championName?"<p><strong>Monthly Champion:</strong> "+escapeHTML(championName)+"</p>":"";
         status.innerHTML=`
             <p><strong>Status:</strong> ${escapeHTML(tournament.status.replaceAll("_"," "))}</p>
             <p><strong>Players joined:</strong> ${joined}/32</p>
             <p><strong>Players ready:</strong> ${ready}/32</p>
-            ${scheduleText}${personalText}`;
+            ${scheduleText}${personalText}${championText}`;
         renderTournamentBracket(data);
     }catch(error){status.textContent=error.message}
 }
@@ -1018,8 +1234,10 @@ function renderTournamentBracket(data){
 async function startTournamentMatch(matchId){
     try{
         const data=await api("/api/tournament/match/"+encodeURIComponent(matchId)+"/start",{method:"POST",body:JSON.stringify({})});
-        alert(data.message||"Tournament match information loaded.");
-    }catch(error){alert(error.message)}
+        gameMode="online";gameUnlimited=false;isTournamentGame=true;
+        document.getElementById("tournamentStatus").textContent="Opening your tournament game. "+(data.opponent?"Opponent: "+data.opponent:"");
+        socket.emit("join_tournament_match",{match_id:matchId});
+    }catch(error){showMessage("tournamentStatus",error.message,true)}
 }
 
 // PROFILE AND STATISTICS
@@ -1028,8 +1246,15 @@ async function loadMyProfile(){
     const details=document.getElementById("profileDetails"),stats=document.getElementById("profileStats");
     details.textContent="Loading profile...";stats.innerHTML="";
     try{
+        const customizationData=await api("/api/player/customization");
+        if(customizationData.customization){
+            customBoardTheme=customizationData.customization.board_theme||"classic";
+            customPieceTheme=customizationData.customization.piece_theme||"classic";
+            document.getElementById("boardTheme").value=customBoardTheme;
+            document.getElementById("pieceTheme").value=customPieceTheme;
+        }
         const data=await api("/api/profile/"+encodeURIComponent(currentUser.username));
-        const player=data.player||currentUser,statistics=data.stats||{};
+        const player=data.profile||data.player||currentUser,statistics=data.stats||player.stats||{};
         details.innerHTML=`<h3>${escapeHTML(player.username)}</h3><p>Rating: ${player.rating}</p>`;
 
         const normalMoves=Number(statistics.normal_moves||0);
@@ -1073,11 +1298,69 @@ async function loadMyProfile(){
                 <strong>${escapeHTML(match.reason||"Completed game")}</strong>
                 <p>${escapeHTML(match.winner_side||"Unknown")} won</p>
                 <small>${escapeHTML(match.created_at||"")}</small>
+                ${match.match_id?`<button class="secondary" onclick="viewReplay('${escapeHTML(match.match_id)}')">View Replay</button>`:""}
             </div>
         `).join("")||"<p>No completed games yet.</p>";
 
     }catch(error){details.textContent=error.message}
 }
+
+// GAME REPLAYS
+async function viewReplay(matchId){
+    try{
+        const data=await api("/api/match/"+encodeURIComponent(matchId));
+        const game=data.game||{};
+        replayMoves=Array.isArray(game.moves)?game.moves:[];
+        replayStates=[initialBoard()];
+        for(const move of replayMoves){
+            if(Array.isArray(move.fen_board)&&move.fen_board.length===8){
+                replayStates.push(move.fen_board.map(row=>row.slice()));
+            }else{
+                const previous=replayStates[replayStates.length-1].map(row=>row.slice());
+                const from=parseSquare(move.from),to=parseSquare(move.to);
+                if(from&&to){
+                    const piece=previous[from[0]][from[1]];
+                    previous[from[0]][from[1]]=".";
+                    if(piece.toLowerCase()==="k"&&Math.abs(to[1]-from[1])===2){
+                        if(to[1]===6){previous[from[0]][5]=previous[from[0]][7];previous[from[0]][7]="."}
+                        else{previous[from[0]][3]=previous[from[0]][0];previous[from[0]][0]="."}
+                    }
+                    if(move.promotion&&piece.toLowerCase()==="p"){
+                        previous[to[0]][to[1]]=colorOf(piece)==="white"?String(move.promotion).toUpperCase():String(move.promotion).toLowerCase();
+                    }else previous[to[0]][to[1]]=piece;
+                }
+                replayStates.push(previous);
+            }
+        }
+        replayIndex=0;
+        document.getElementById("replayTitle").textContent="Game Replay";
+        showScreen("replayScreen");renderReplay();
+    }catch(error){alert("Could not load replay: "+error.message)}
+}
+function renderReplay(){
+    const boardElement=document.getElementById("replayBoard");
+    const position=replayStates[replayIndex]||initialBoard();
+    boardElement.innerHTML="";
+    for(let r=0;r<8;r++)for(let c=0;c<8;c++){
+        const square=document.createElement("div");
+        square.className="square "+((r+c)%2===0?"light":"dark");
+        const piece=position[r][c];
+        if(piece!=="."){
+            const span=document.createElement("span");
+            span.className="piece "+(colorOf(piece)==="white"?"white-piece":"black-piece");
+            span.textContent=PIECES[piece]||piece;square.appendChild(span);
+        }
+        boardElement.appendChild(square);
+    }
+    const move=replayMoves[replayIndex-1];
+    document.getElementById("replayMoveLabel").textContent=replayIndex===0?"Starting position":
+        "Move "+replayIndex+": "+(move?.from||"")+" → "+(move?.to||"")+
+        (move?.slipped?" (mouseslip)":"");
+}
+function replayFirst(){replayIndex=0;renderReplay()}
+function replayBack(){replayIndex=Math.max(0,replayIndex-1);renderReplay()}
+function replayNext(){replayIndex=Math.min(replayMoves.length,replayIndex+1);renderReplay()}
+function replayLast(){replayIndex=replayMoves.length;renderReplay()}
 
 // FRIENDS
 async function loadFriends(){
@@ -1085,26 +1368,34 @@ async function loadFriends(){
     const container=document.getElementById("friendsList");container.textContent="Loading friends...";
     try{
         const data=await api("/api/friends"),friends=data.friends||[],requests=data.requests||[];
+        const outgoing=data.outgoing_requests||[];
         container.innerHTML="<h3>Friends</h3>"+
-            (friends.map(friend=>`<div class="match-card">${escapeHTML(friend.username)}</div>`).join("")||"<p>No friends yet.</p>")+
+            (friends.map(friend=>`<div class="match-card">${escapeHTML(friend.username)} <button class="secondary" onclick="inviteFriend('${escapeHTML(friend.id)}')">Invite to Game</button></div>`).join("")||"<p>No friends yet.</p>")+
             "<h3>Incoming requests</h3>"+
             (requests.map(request=>`
                 <div class="match-card">${escapeHTML(request.username)}
-                <button class="success" onclick="acceptFriend('${escapeHTML(request.id)}')">Accept</button></div>
-            `).join("")||"<p>No incoming requests.</p>");
+                <button class="success" onclick="respondFriendRequest('${escapeHTML(request.id)}','accept')">Accept</button>
+                <button class="danger" onclick="respondFriendRequest('${escapeHTML(request.id)}','decline')">Decline</button></div>
+            `).join("")||"<p>No incoming requests.</p>")+
+            "<h3>Outgoing requests</h3>"+
+            (outgoing.map(request=>`<div class="match-card">${escapeHTML(request.username)} — Pending</div>`).join("")||"<p>No outgoing requests.</p>");
     }catch(error){container.textContent=error.message}
+}
+function inviteFriend(friendId){
+    if(!requireLogin())return;
+    socket.emit("invite_friend",{friend_id:friendId});
 }
 async function sendFriendRequest(){
     if(!requireLogin())return;
     const username=document.getElementById("friendUsername").value.trim();
     try{
-        await api("/api/friends/request",{method:"POST",body:JSON.stringify({username})});
+        await api("/api/friends",{method:"POST",body:JSON.stringify({username})});
         showMessage("friendMessage","Friend request sent.");
     }catch(error){showMessage("friendMessage",error.message,true)}
 }
-async function acceptFriend(id){
+async function respondFriendRequest(id,action){
     try{
-        await api("/api/friends/accept",{method:"POST",body:JSON.stringify({request_id:id})});
+        await api("/api/friends/"+encodeURIComponent(id)+"/respond",{method:"POST",body:JSON.stringify({action})});
         loadFriends();
     }catch(error){alert(error.message)}
 }
@@ -1119,8 +1410,8 @@ async function loadHallOfFame(){
             `).join("")||"<p>No records yet.</p>";
         }
         document.getElementById("hallRating").innerHTML=makeRows(data.highest_rated);
-        document.getElementById("hallStreaks").innerHTML=makeRows(data.longest_streaks);
-        document.getElementById("hallGames").innerHTML=makeRows(data.most_games);
+        document.getElementById("hallStreaks").innerHTML=makeRows(data.longest_win_streaks||data.longest_streaks);
+        document.getElementById("hallGames").innerHTML=makeRows(data.most_games_played||data.most_games);
     }catch(error){document.getElementById("hallRating").textContent=error.message}
 }
 
@@ -1130,14 +1421,15 @@ async function loadDailyChallenge(){
     try{
         const data=await api("/api/daily-challenge");
         if(!data.challenge){container.textContent="No daily challenge has been published.";return}
-        container.innerHTML=`<h3>${escapeHTML(data.challenge.title||"Daily Challenge")}</h3><p>${escapeHTML(data.challenge.description||"")}</p>`;
+        container.innerHTML=`<h3>${escapeHTML(data.challenge.title||"Daily Challenge")}</h3><p>${escapeHTML(data.challenge.description||"")}</p>`+
+            (data.completed?"<p>You have completed today's challenge.</p>":"");
     }catch(error){container.textContent=error.message}
 }
 async function completeDailyChallenge(){
     if(!requireLogin())return;
     try{
         await api("/api/daily-challenge/complete",{method:"POST",body:JSON.stringify({})});
-        showMessage("dailyMessage","Challenge completion recorded.");
+        showMessage("dailyMessage","Challenge completion recorded.");loadDailyChallenge();
     }catch(error){showMessage("dailyMessage",error.message,true)}
 }
 
@@ -1147,7 +1439,7 @@ async function saveCustomization(){
     customBoardTheme=document.getElementById("boardTheme").value;
     customPieceTheme=document.getElementById("pieceTheme").value;
     try{
-        await api("/api/customization",{method:"POST",body:JSON.stringify({
+        await api("/api/player/customization",{method:"POST",body:JSON.stringify({
             board_theme:customBoardTheme,piece_theme:customPieceTheme
         })});
         showMessage("customizationMessage","Customisation saved.");renderBoard();
@@ -1175,6 +1467,17 @@ async function postComment(){
     }catch(error){showMessage("commentMessage",error.message,true)}
 }
 
+async function sendFeedback(){
+    if(!requireLogin())return;
+    const message=document.getElementById("feedbackInput").value.trim();
+    if(!message)return;
+    try{
+        await api("/api/feedback",{method:"POST",body:JSON.stringify({message})});
+        document.getElementById("feedbackInput").value="";
+        showMessage("feedbackMessage","Private feedback sent.");
+    }catch(error){showMessage("feedbackMessage",error.message,true)}
+}
+
 // GAME OF THE DAY
 async function loadGameOfTheDay(){
     const element=document.getElementById("gameOfDay");
@@ -1182,7 +1485,8 @@ async function loadGameOfTheDay(){
         const data=await api("/api/game-of-the-day");
         if(!data.game){element.textContent="No featured game yet.";return}
         const game=data.game;
-        element.innerHTML=`<p>Winner: ${escapeHTML(game.winner_side||"Unknown")}</p><p>Reason: ${escapeHTML(game.reason||"Completed game")}</p>`;
+        element.innerHTML=`<p>Winner: ${escapeHTML(game.winner_side||"Unknown")}</p><p>Reason: ${escapeHTML(game.reason||"Completed game")}</p>`+
+            (game.match_id?`<button class="secondary" onclick="viewReplay('${escapeHTML(game.match_id)}')">View Game Replay</button>`:"");
     }catch(_){element.textContent="No featured game available."}
 }
 
@@ -1193,9 +1497,24 @@ async function loadAdminFeedback(){
         const data=await api("/api/admin/feedback");
         document.getElementById("adminFeedback").innerHTML=(data.feedback||[]).map(item=>`
             <div class="match-card"><strong>${escapeHTML(item.username||"Player")}</strong>
-            <p>${escapeHTML(item.message||item.feedback||"")}</p></div>
+            <p>${escapeHTML(item.message||item.feedback||"")}</p>
+            ${item.admin_reply?`<p><strong>Your reply:</strong> ${escapeHTML(item.admin_reply)}</p>`:""}
+            <textarea id="feedbackReply-${escapeHTML(item.id)}" maxlength="2000" placeholder="Reply privately..."></textarea>
+            <button class="secondary" onclick="replyFeedback('${escapeHTML(item.id)}')">Send Reply</button></div>
         `).join("")||"<p>No feedback.</p>";
     }catch(error){document.getElementById("adminFeedback").textContent=error.message}
+}
+
+async function replyFeedback(feedbackId){
+    if(!currentUser||!currentUser.is_admin)return;
+    const field=document.getElementById("feedbackReply-"+feedbackId);
+    const reply=field.value.trim();
+    if(!reply)return;
+    try{
+        await api("/api/admin/feedback/"+encodeURIComponent(feedbackId)+"/reply",{method:"POST",body:JSON.stringify({reply})});
+        showMessage("adminFeedback","Reply sent.");
+        loadAdminFeedback();
+    }catch(error){alert(error.message)}
 }
 
 // INITIAL LOAD
