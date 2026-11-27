@@ -1363,13 +1363,17 @@ async function loadFriends(){
     const container=document.getElementById("friendsList");container.textContent="Loading friends...";
     try{
         const data=await api("/api/friends"),friends=data.friends||[],requests=data.requests||[];
+        const outgoing=data.outgoing_requests||[];
         container.innerHTML="<h3>Friends</h3>"+
             (friends.map(friend=>`<div class="match-card">${escapeHTML(friend.username)} <button class="secondary" onclick="inviteFriend('${escapeHTML(friend.id)}')">Invite to Game</button></div>`).join("")||"<p>No friends yet.</p>")+
             "<h3>Incoming requests</h3>"+
             (requests.map(request=>`
                 <div class="match-card">${escapeHTML(request.username)}
-                <button class="success" onclick="acceptFriend('${escapeHTML(request.id)}')">Accept</button></div>
-            `).join("")||"<p>No incoming requests.</p>");
+                <button class="success" onclick="respondFriendRequest('${escapeHTML(request.id)}','accept')">Accept</button>
+                <button class="danger" onclick="respondFriendRequest('${escapeHTML(request.id)}','decline')">Decline</button></div>
+            `).join("")||"<p>No incoming requests.</p>")+
+            "<h3>Outgoing requests</h3>"+
+            (outgoing.map(request=>`<div class="match-card">${escapeHTML(request.username)} — Pending</div>`).join("")||"<p>No outgoing requests.</p>");
     }catch(error){container.textContent=error.message}
 }
 function inviteFriend(friendId){
@@ -1384,9 +1388,9 @@ async function sendFriendRequest(){
         showMessage("friendMessage","Friend request sent.");
     }catch(error){showMessage("friendMessage",error.message,true)}
 }
-async function acceptFriend(id){
+async function respondFriendRequest(id,action){
     try{
-        await api("/api/friends/"+encodeURIComponent(id)+"/respond",{method:"POST",body:JSON.stringify({action:"accept"})});
+        await api("/api/friends/"+encodeURIComponent(id)+"/respond",{method:"POST",body:JSON.stringify({action})});
         loadFriends();
     }catch(error){alert(error.message)}
 }
@@ -1476,7 +1480,8 @@ async function loadGameOfTheDay(){
         const data=await api("/api/game-of-the-day");
         if(!data.game){element.textContent="No featured game yet.";return}
         const game=data.game;
-        element.innerHTML=`<p>Winner: ${escapeHTML(game.winner_side||"Unknown")}</p><p>Reason: ${escapeHTML(game.reason||"Completed game")}</p>`;
+        element.innerHTML=`<p>Winner: ${escapeHTML(game.winner_side||"Unknown")}</p><p>Reason: ${escapeHTML(game.reason||"Completed game")}</p>`+
+            (game.match_id?`<button class="secondary" onclick="viewReplay('${escapeHTML(game.match_id)}')">View Game Replay</button>`:"");
     }catch(_){element.textContent="No featured game available."}
 }
 
