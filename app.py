@@ -1704,6 +1704,13 @@ def make_move(
         end = intended_end
         nr, nc = end
 
+    # Promotion itself also mouseslips: selecting one piece results in
+    # a randomly selected different promotion piece.
+    if piece.lower() == "p" and nr in (0, 7):
+        promotion = random.choice([
+            option for option in PROMOTIONS if option != promotion
+        ])
+
     old_en_passant = room.get("en_passant")
 
     # Correctly detect normal captures and en passant captures.
