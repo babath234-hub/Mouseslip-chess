@@ -725,7 +725,9 @@ function applyLocalMove(start,end,promotion="q"){
         board[nr][nc]=color==="white"?chosen.toUpperCase():chosen.toLowerCase();
     }else board[nr][nc]=piece;
     lastMove={from:start,to:end};
-    gameMoves.push({from:squareName(r,c),to:squareName(nr,nc),piece,captured,intended_to:window.lastIntendedSquare||squareName(nr,nc),slipped:(window.lastIntendedSquare||squareName(nr,nc))!==squareName(nr,nc)});
+    const intendedSquare=window.lastIntendedSquare||squareName(nr,nc);
+    gameMoves.push({from:squareName(r,c),to:squareName(nr,nc),piece,captured,intended_to:intendedSquare,slipped:intendedSquare!==squareName(nr,nc)});
+    window.lastIntendedSquare=null;
     return captured;
 }
 function squareName(r,c){return FILES[c]+(8-r)}
