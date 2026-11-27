@@ -11,7 +11,7 @@ import threading
 
 from datetime import datetime, timezone, date, timedelta
 from zoneinfo import ZoneInfo
-from flask import Flask, render_template, request, jsonify, session
+from flask import Flask, render_template, request, jsonify, session, send_from_directory
 from flask_socketio import SocketIO, emit, join_room, leave_room
 from werkzeug.security import generate_password_hash, check_password_hash
 from supabase import create_client
@@ -379,6 +379,16 @@ def utc_now():
 @app.route("/")
 def home():
     return render_template("index.html")
+
+
+@app.route("/firebase-messaging-sw.js")
+def firebase_messaging_service_worker():
+    return send_from_directory(
+        os.path.join(app.root_path, "static"),
+        "firebase-messaging-sw.js",
+        mimetype="application/javascript",
+        max_age=0
+    )
 
 
 @app.route("/sitemap.xml")
