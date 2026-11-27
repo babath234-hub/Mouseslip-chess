@@ -61,6 +61,8 @@ nav{display:flex;gap:7px;flex-wrap:wrap;margin-bottom:18px}
 nav button{background:var(--panel2);border:1px solid var(--border);color:white;padding:9px 12px;border-radius:8px}
 #boardArea{width:min(620px,100%);margin:15px auto;position:relative}
 #board{display:grid;grid-template-columns:repeat(8,1fr);width:100%;aspect-ratio:1;border:3px solid #3a465b;user-select:none;touch-action:manipulation}
+.replay-board{display:grid;grid-template-columns:repeat(8,1fr);width:min(560px,100%);aspect-ratio:1;margin:15px auto;border:3px solid #3a465b}
+.replay-board .square{cursor:default}
 .square{position:relative;display:flex;align-items:center;justify-content:center;font-size:clamp(24px,6vw,53px);cursor:pointer;aspect-ratio:1}
 .square.light{background:var(--light-square)}
 .square.dark{background:var(--dark-square)}
@@ -222,6 +224,20 @@ header{padding:12px}.container{width:96%;margin:14px auto}
     </div>
 </section>
 
+<section id="replayScreen" class="screen">
+    <div class="panel">
+        <h2 id="replayTitle">Game Replay</h2>
+        <div id="replayBoard" class="replay-board"></div>
+        <p id="replayMoveLabel">Starting position</p>
+        <div class="row">
+            <button class="secondary" onclick="replayFirst()">First</button>
+            <button class="secondary" onclick="replayBack()">Previous</button>
+            <button class="primary" onclick="replayNext()">Next</button>
+            <button class="secondary" onclick="replayLast()">Last</button>
+        </div>
+    </div>
+</section>
+
 <section id="leaderboardScreen" class="screen">
     <div class="panel">
         <h2>Global Leaderboard</h2>
@@ -362,6 +378,7 @@ let gameUnlimited=false,isTournamentGame=false;
 let localEnPassant=null;
 let localCastlingRights={whiteKing:true,whiteQueen:true,blackKing:true,blackQueen:true};
 let gameMoves=[],customBoardTheme="classic",customPieceTheme="classic";
+let replayStates=[],replayMoves=[],replayIndex=0;
 let gameStartTime=0,analysisArrows=[];
 
 /* SCREEN NAVIGATION */
@@ -1215,11 +1232,69 @@ async function loadMyProfile(){
                 <strong>${escapeHTML(match.reason||"Completed game")}</strong>
                 <p>${escapeHTML(match.winner_side||"Unknown")} won</p>
                 <small>${escapeHTML(match.created_at||"")}</small>
+                ${match.match_id?`<button class="secondary" onclick="viewReplay('${escapeHTML(match.match_id)}')">View Replay</button>`:""}
             </div>
         `).join("")||"<p>No completed games yet.</p>";
 
     }catch(error){details.textContent=error.message}
 }
+
+// GAME REPLAYS
+async function viewReplay(matchId){
+    try{
+        const data=await api("/api/match/"+encodeURIComponent(matchId));
+        const game=data.game||{};
+        replayMoves=Array.isArray(game.moves)?game.moves:[];
+        replayStates=[initialBoard()];
+        for(const move of replayMoves){
+            if(Array.isArray(move.fen_board)&&move.fen_board.length===8){
+                replayStates.push(move.fen_board.map(row=>row.slice()));
+            }else{
+                const previous=replayStates[replayStates.length-1].map(row=>row.slice());
+                const from=parseSquare(move.from),to=parseSquare(move.to);
+                if(from&&to){
+                    const piece=previous[from[0]][from[1]];
+                    previous[from[0]][from[1]]=".";
+                    if(piece.toLowerCase()==="k"&&Math.abs(to[1]-from[1])===2){
+                        if(to[1]===6){previous[from[0]][5]=previous[from[0]][7];previous[from[0]][7]="."}
+                        else{previous[from[0]][3]=previous[from[0]][0];previous[from[0]][0]="."}
+                    }
+                    if(move.promotion&&piece.toLowerCase()==="p"){
+                        previous[to[0]][to[1]]=colorOf(piece)==="white"?String(move.promotion).toUpperCase():String(move.promotion).toLowerCase();
+                    }else previous[to[0]][to[1]]=piece;
+                }
+                replayStates.push(previous);
+            }
+        }
+        replayIndex=0;
+        document.getElementById("replayTitle").textContent="Game Replay";
+        showScreen("replayScreen");renderReplay();
+    }catch(error){alert("Could not load replay: "+error.message)}
+}
+function renderReplay(){
+    const boardElement=document.getElementById("replayBoard");
+    const position=replayStates[replayIndex]||initialBoard();
+    boardElement.innerHTML="";
+    for(let r=0;r<8;r++)for(let c=0;c<8;c++){
+        const square=document.createElement("div");
+        square.className="square "+((r+c)%2===0?"light":"dark");
+        const piece=position[r][c];
+        if(piece!=="."){
+            const span=document.createElement("span");
+            span.className="piece "+(colorOf(piece)==="white"?"white-piece":"black-piece");
+            span.textContent=PIECES[piece]||piece;square.appendChild(span);
+        }
+        boardElement.appendChild(square);
+    }
+    const move=replayMoves[replayIndex-1];
+    document.getElementById("replayMoveLabel").textContent=replayIndex===0?"Starting position":
+        "Move "+replayIndex+": "+(move?.from||"")+" → "+(move?.to||"")+
+        (move?.slipped?" (mouseslip)":"");
+}
+function replayFirst(){replayIndex=0;renderReplay()}
+function replayBack(){replayIndex=Math.max(0,replayIndex-1);renderReplay()}
+function replayNext(){replayIndex=Math.min(replayMoves.length,replayIndex+1);renderReplay()}
+function replayLast(){replayIndex=replayMoves.length;renderReplay()}
 
 // FRIENDS
 async function loadFriends(){
