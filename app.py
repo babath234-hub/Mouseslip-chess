@@ -2201,6 +2201,10 @@ def respond_game_invite(data):
     if player_sids.get(invite["from_id"]) != inviter_sid:
         emit("invite_error", {"error": "Your friend is no longer online."})
         return
+    inviter = get_player_by_id(invite["from_id"])
+    if not inviter:
+        emit("invite_error", {"error": "The inviting account is unavailable."})
+        return
     room = new_room(
         inviter_sid, request.sid, invite["seconds"], invite["increment"],
         False, invite["from_id"], player["id"], private=True
@@ -2209,7 +2213,7 @@ def respond_game_invite(data):
     join_room(room["code"], sid=request.sid)
     for side, sid, opponent_name in (
         ("white", inviter_sid, player["username"]),
-        ("black", request.sid, get_player_by_id(invite["from_id"])["username"])
+        ("black", request.sid, inviter["username"])
     ):
         socketio.emit("match_found", {
             "room": room["code"], "color": side,
@@ -2294,6 +2298,7 @@ def find_match(data):
         waiting_players[:] = [
             item for item in waiting_players
             if item["sid"] != request.sid
+            and item["player_id"] != player["id"]
         ]
 
         rating = int(player["rating"])
@@ -2564,6 +2569,9 @@ def join_tournament_match(data):
             return
         if match.get("status") == "completed":
             emit("match_error", {"error": "This tournament match is complete."})
+            return
+        if match.get("status") not in ("ready", "playing"):
+            emit("match_error", {"error": "This tournament round is not ready."})
             return
         if match.get("game_match_id"):
             emit("match_error", {"error": "This tournament match already has a game in progress."})
@@ -2875,7 +2883,7 @@ def send_chat(data):
 # ============================================================
 
 def current_month_start():
-    today = date.today()
+    today = datetime.now(RIYADH).date()
     return today.replace(day=1).isoformat()
 
 
