@@ -1697,9 +1697,12 @@ def make_move(
             and ((destination[0] > r) - (destination[0] < r)) == intended_direction
         ]
     else:
+        # Non-knight slips must land next to the intended destination.
         alternatives = [
             destination for destination in destinations
             if destination != intended_end
+            and abs(destination[0] - intended_end[0]) <= 1
+            and abs(destination[1] - intended_end[1]) <= 1
         ]
     if alternatives:
         end = random.choice(alternatives)
