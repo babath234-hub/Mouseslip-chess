@@ -2006,6 +2006,14 @@ def register_socket_presence():
         connected_sids.add(request.sid)
 
 
+@socketio.on("unregister_presence")
+def unregister_socket_presence():
+    player = current_player()
+    if player and player_sids.get(player["id"]) == request.sid:
+        player_sids.pop(player["id"], None)
+    connected_sids.discard(request.sid)
+
+
 @socketio.on("request_game_state")
 def request_game_state(data):
     code = str((data or {}).get("room", "")).strip().upper()
