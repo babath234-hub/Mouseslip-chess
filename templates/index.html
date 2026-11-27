@@ -1177,11 +1177,13 @@ async function loadTournament(){
                 : data.my_entry_joined
                     ? "<p>You have joined. Check in when all 32 players have joined.</p>"
                     : "";
+        const championName=tournament.champion_id?(data.player_names||{})[tournament.champion_id]:"";
+        const championText=championName?"<p><strong>Monthly Champion:</strong> "+escapeHTML(championName)+"</p>":"";
         status.innerHTML=`
             <p><strong>Status:</strong> ${escapeHTML(tournament.status.replaceAll("_"," "))}</p>
             <p><strong>Players joined:</strong> ${joined}/32</p>
             <p><strong>Players ready:</strong> ${ready}/32</p>
-            ${scheduleText}${personalText}`;
+            ${scheduleText}${personalText}${championText}`;
         renderTournamentBracket(data);
     }catch(error){status.textContent=error.message}
 }
@@ -1492,9 +1494,24 @@ async function loadAdminFeedback(){
         const data=await api("/api/admin/feedback");
         document.getElementById("adminFeedback").innerHTML=(data.feedback||[]).map(item=>`
             <div class="match-card"><strong>${escapeHTML(item.username||"Player")}</strong>
-            <p>${escapeHTML(item.message||item.feedback||"")}</p></div>
+            <p>${escapeHTML(item.message||item.feedback||"")}</p>
+            ${item.admin_reply?`<p><strong>Your reply:</strong> ${escapeHTML(item.admin_reply)}</p>`:""}
+            <textarea id="feedbackReply-${escapeHTML(item.id)}" maxlength="2000" placeholder="Reply privately..."></textarea>
+            <button class="secondary" onclick="replyFeedback('${escapeHTML(item.id)}')">Send Reply</button></div>
         `).join("")||"<p>No feedback.</p>";
     }catch(error){document.getElementById("adminFeedback").textContent=error.message}
+}
+
+async function replyFeedback(feedbackId){
+    if(!currentUser||!currentUser.is_admin)return;
+    const field=document.getElementById("feedbackReply-"+feedbackId);
+    const reply=field.value.trim();
+    if(!reply)return;
+    try{
+        await api("/api/admin/feedback/"+encodeURIComponent(feedbackId)+"/reply",{method:"POST",body:JSON.stringify({reply})});
+        showMessage("adminFeedback","Reply sent.");
+        loadAdminFeedback();
+    }catch(error){alert(error.message)}
 }
 
 // INITIAL LOAD
