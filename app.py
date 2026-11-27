@@ -47,6 +47,11 @@ sid_room = {}
 waiting_players = []
 connected_sids = set()
 tournament_waiting = {}
+tournament_waiting = {}
+player_sids = {}
+spectator_rooms = {}
+rematch_requests = {}
+game_invites = {}
 
 tournament_lock = threading.RLock()
 _firebase_app = None
@@ -1784,7 +1789,8 @@ def new_room(
     white_id=None,
     black_id=None,
     tournament_id=None,
-    tournament_match_id=None
+    tournament_match_id=None,
+    private=False
 ):
     code = "".join(
         secrets.choice(string.ascii_uppercase + string.digits)
@@ -1828,7 +1834,8 @@ def new_room(
         "unlimited": int(seconds) == 0,
         "last_clock_emit": now,
         "tournament_id": tournament_id,
-        "tournament_match_id": tournament_match_id
+        "tournament_match_id": tournament_match_id,
+        "private": bool(private)
     }
 
     rooms[code] = room
@@ -1981,8 +1988,225 @@ def clock_worker():
 
 
 # ============================================================
+# SOCKET PRESENCE, SPECTATING, FRIEND INVITES AND REMATCHES
+# ============================================================
+
+@socketio.on("connect")
+def socket_connected(auth=None):
+    player = current_player()
+    if player:
+        player_sids[player["id"]] = request.sid
+        connected_sids.add(request.sid)
+
+
+@socketio.on("request_game_state")
+def request_game_state(data):
+    code = str((data or {}).get("room", "")).strip().upper()
+    room = rooms.get(code)
+    if not room or room["over"]:
+        emit("match_error", {"error": "Game is no longer active."})
+        return
+    if sid_room.get(request.sid) != code and spectator_rooms.get(request.sid) != code:
+        emit("match_error", {"error": "You are not allowed to view this game."})
+        return
+    emit("game_started", room_snapshot(room))
+
+
+@socketio.on("spectate_game")
+def spectate_game(data):
+    code = str((data or {}).get("room", "")).strip().upper()
+    room = rooms.get(code)
+    if not room or room["over"] or room.get("private") or not room.get("black"):
+        emit("spectator_error", {"error": "This game cannot be spectated."})
+        return
+    spectator_rooms[request.sid] = code
+    join_room(code)
+    emit("game_started", room_snapshot(room))
+
+
+@socketio.on("request_rematch")
+def request_rematch(data):
+    code = str((data or {}).get("room", "")).strip().upper()
+    room = rooms.get(code)
+    if not room or not room["over"] or room.get("tournament_match_id"):
+        emit("rematch_error", {"error": "A rematch is not available."})
+        return
+    if request.sid not in (room.get("white"), room.get("black")):
+        emit("rematch_error", {"error": "You were not a player in this game."})
+        return
+    opponent_sid = room["black"] if room["white"] == request.sid else room["white"]
+    if not opponent_sid or sid_room.get(opponent_sid) != code:
+        emit("rematch_error", {"error": "Your opponent is no longer connected."})
+        return
+    rematch_requests[code] = request.sid
+    player = current_player()
+    socketio.emit("rematch_offer", {
+        "room": code,
+        "username": player["username"] if player else "Your opponent"
+    }, to=opponent_sid)
+    emit("rematch_status", {"message": "Rematch request sent."})
+
+
+@socketio.on("respond_rematch")
+def respond_rematch(data):
+    data = data or {}
+    code = str(data.get("room", "")).strip().upper()
+    room = rooms.get(code)
+    requester_sid = rematch_requests.get(code)
+    if not room or not room["over"] or not requester_sid or requester_sid == request.sid:
+        emit("rematch_error", {"error": "This rematch request is no longer available."})
+        return
+    if request.sid not in (room.get("white"), room.get("black")):
+        emit("rematch_error", {"error": "You were not a player in this game."})
+        return
+    if not data.get("accept"):
+        rematch_requests.pop(code, None)
+        socketio.emit("rematch_status", {"message": "Your opponent declined the rematch."}, to=requester_sid)
+        return
+    if sid_room.get(requester_sid) != code or sid_room.get(request.sid) != code:
+        rematch_requests.pop(code, None)
+        emit("rematch_error", {"error": "Both players must still be connected."})
+        return
+
+    rematch_requests.pop(code, None)
+    if random.choice([True, False]):
+        white_sid, black_sid = requester_sid, request.sid
+        white_id, black_id = room["white_id"] if room["white"] == requester_sid else room["black_id"], room["black_id"] if room["black"] == request.sid else room["white_id"]
+    else:
+        white_sid, black_sid = request.sid, requester_sid
+        white_id, black_id = room["white_id"] if room["white"] == request.sid else room["black_id"], room["white_id"] if room["white"] == requester_sid else room["black_id"]
+
+    seconds = 0 if room["unlimited"] else room["seconds"]
+    new_game = new_room(
+        white_sid, black_sid, seconds, room["increment"], room["rated"],
+        white_id, black_id, private=room.get("private", False)
+    )
+    join_room(new_game["code"], sid=white_sid)
+    join_room(new_game["code"], sid=black_sid)
+    for side, sid, opponent_id in (
+        ("white", white_sid, black_id),
+        ("black", black_sid, white_id)
+    ):
+        opponent = get_player_by_id(opponent_id)
+        socketio.emit("match_found", {
+            "room": new_game["code"],
+            "color": side,
+            "seconds": seconds,
+            "increment": new_game["increment"],
+            "rated": new_game["rated"],
+            "unlimited": new_game["unlimited"],
+            "opponent": opponent["username"] if opponent else "Opponent"
+        }, to=sid)
+    socketio.emit("game_started", room_snapshot(new_game), room=new_game["code"])
+
+
+@socketio.on("invite_friend")
+def invite_friend(data):
+    player, error = require_player()
+    if error:
+        emit("invite_error", {"error": "Log in before inviting a friend."})
+        return
+    friend_id = str((data or {}).get("friend_id", "")).strip()
+    if not friend_id or friend_id == player["id"]:
+        emit("invite_error", {"error": "Choose a valid friend."})
+        return
+    friendship = (
+        supabase.table("friend_requests")
+        .select("id")
+        .or_(
+            f"and(sender_id.eq.{player['id']},receiver_id.eq.{friend_id}),"
+            f"and(sender_id.eq.{friend_id},receiver_id.eq.{player['id']})"
+        )
+        .eq("status", "accepted")
+        .limit(1)
+        .execute()
+    )
+    if not friendship.data:
+        emit("invite_error", {"error": "You can only invite accepted friends."})
+        return
+    target_sid = player_sids.get(friend_id)
+    if not target_sid:
+        emit("invite_error", {"error": "That friend is not online right now."})
+        return
+    invite_id = str(uuid.uuid4())
+    game_invites[invite_id] = {
+        "from_id": player["id"], "from_sid": request.sid,
+        "to_id": friend_id, "seconds": 300, "increment": 0,
+        "expires": time.time() + 120
+    }
+    socketio.emit("game_invite", {
+        "invite_id": invite_id, "username": player["username"],
+        "time_control": "5 minutes"
+    }, to=target_sid)
+    emit("invite_status", {"message": "Game invitation sent."})
+
+
+@socketio.on("respond_game_invite")
+def respond_game_invite(data):
+    player, error = require_player()
+    if error:
+        emit("invite_error", {"error": "Log in before responding."})
+        return
+    data = data or {}
+    invite_id = str(data.get("invite_id", ""))
+    invite = game_invites.get(invite_id)
+    if not invite or invite["to_id"] != player["id"] or invite["expires"] < time.time():
+        game_invites.pop(invite_id, None)
+        emit("invite_error", {"error": "This game invitation has expired."})
+        return
+    game_invites.pop(invite_id, None)
+    inviter_sid = invite["from_sid"]
+    if not data.get("accept"):
+        socketio.emit("invite_declined", {"message": player["username"] + " declined your invitation."}, to=inviter_sid)
+        return
+    if player_sids.get(invite["from_id"]) != inviter_sid:
+        emit("invite_error", {"error": "Your friend is no longer online."})
+        return
+    room = new_room(
+        inviter_sid, request.sid, invite["seconds"], invite["increment"],
+        False, invite["from_id"], player["id"], private=True
+    )
+    join_room(room["code"], sid=inviter_sid)
+    join_room(room["code"], sid=request.sid)
+    for side, sid, opponent_name in (
+        ("white", inviter_sid, player["username"]),
+        ("black", request.sid, get_player_by_id(invite["from_id"])["username"])
+    ):
+        socketio.emit("match_found", {
+            "room": room["code"], "color": side,
+            "seconds": room["seconds"], "increment": room["increment"],
+            "rated": False, "unlimited": False, "opponent": opponent_name
+        }, to=sid)
+    socketio.emit("game_started", room_snapshot(room), room=room["code"])
+
+
+# ============================================================
 # MATCHMAKING
 # ============================================================
+
+@app.route("/api/live-games")
+def live_games():
+    try:
+        games = []
+        for room in list(rooms.values()):
+            if room["over"] or not room["active"] or room.get("private") or not room.get("black"):
+                continue
+            white = get_player_by_id(room.get("white_id"))
+            black = get_player_by_id(room.get("black_id"))
+            games.append({
+                "room": room["code"],
+                "white": white["username"] if white else "White",
+                "black": black["username"] if black else "Black",
+                "turn": room["turn"],
+                "white_time": room["white_time"],
+                "black_time": room["black_time"],
+                "rated": room["rated"],
+                "tournament": bool(room.get("tournament_match_id"))
+            })
+        return jsonify({"games": games})
+    except Exception:
+        return database_error("loading live games")
+
 
 @app.route("/api/online/leave", methods=["POST"])
 def leave_queue():
@@ -2176,7 +2400,8 @@ def create_private_lobby(data):
         increment,
         rated,
         player["id"],
-        None
+        None,
+        private=True
     )
 
     join_room(room["code"])
@@ -2487,6 +2712,10 @@ def resign():
 
 @socketio.on("leave_game")
 def leave_game():
+    spectator_code = spectator_rooms.pop(request.sid, None)
+    if spectator_code:
+        leave_room(spectator_code)
+        return
     code = sid_room.get(request.sid)
 
     if not code:
@@ -2508,6 +2737,16 @@ def leave_game():
 @socketio.on("disconnect")
 def disconnected():
     with lock:
+        connected_sids.discard(request.sid)
+        for player_id, sid in list(player_sids.items()):
+            if sid == request.sid:
+                player_sids.pop(player_id, None)
+        spectator_code = spectator_rooms.pop(request.sid, None)
+        if spectator_code:
+            leave_room(spectator_code)
+        for invite_id, invite in list(game_invites.items()):
+            if invite["from_sid"] == request.sid:
+                game_invites.pop(invite_id, None)
         waiting_players[:] = [
             item for item in waiting_players
             if item["sid"] != request.sid
