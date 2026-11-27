@@ -632,6 +632,16 @@ def player_profile(username):
             .execute()
         )
         achievement_rows = achievements_result.data or []
+        killer_result = (
+            supabase.table("player_killer_progress")
+            .select("piece_type, king_captures")
+            .eq("player_id", player["id"])
+            .execute()
+        )
+        killer_progress = {
+            item["piece_type"]: int(item.get("king_captures", 0) or 0)
+            for item in (killer_result.data or [])
+        }
         achievement_ids = [
             item.get("achievement_id") for item in achievement_rows
             if item.get("achievement_id")
@@ -676,6 +686,7 @@ def player_profile(username):
             "player": profile,
             "stats": stats,
             "achievements": achievement_rows,
+            "killer_progress": killer_progress,
             "history": history_result.data or []
         })
 
@@ -1231,8 +1242,18 @@ def player_achievements():
             .execute()
         )
 
+        killer_result = (
+            supabase.table("player_killer_progress")
+            .select("piece_type, king_captures")
+            .eq("player_id", player["id"])
+            .execute()
+        )
         return jsonify({
-            "achievements": result.data or []
+            "achievements": result.data or [],
+            "killer_progress": {
+                item["piece_type"]: int(item.get("king_captures", 0) or 0)
+                for item in (killer_result.data or [])
+            }
         })
 
     except Exception:
@@ -1902,6 +1923,35 @@ def room_snapshot(room):
     }
 
 
+def record_killer_awards(moves):
+    """Count king captures by the piece that made them for each logged-in player."""
+    piece_names = {"r": "rook", "n": "knight", "b": "bishop", "q": "queen", "p": "pawn", "k": "king"}
+    for move in moves or []:
+        captured_piece = str(move.get("captured_piece") or ".")
+        piece = str(move.get("piece") or ".").lower()
+        player_id = move.get("player_id")
+        if captured_piece.lower() != "k" or piece not in piece_names or not player_id:
+            continue
+        try:
+            table = supabase.table("player_killer_progress")
+            existing = (
+                table.select("king_captures")
+                .eq("player_id", player_id)
+                .eq("piece_type", piece_names[piece])
+                .limit(1)
+                .execute()
+            )
+            if existing.data:
+                count = int(existing.data[0].get("king_captures", 0) or 0) + 1
+                table.update({"king_captures": count, "updated_at": utc_now()}) \
+                    .eq("player_id", player_id) \
+                    .eq("piece_type", piece_names[piece]).execute()
+            else:
+                table.insert({"player_id": player_id, "piece_type": piece_names[piece], "king_captures": 1}).execute()
+        except Exception:
+            app.logger.exception("Could not update Killer award progress for player %s.", player_id)
+
+
 def finish_room(code, winner, reason):
     with lock:
         room = rooms.get(code)
@@ -1939,6 +1989,9 @@ def finish_room(code, winner, reason):
             app.logger.exception(
                 "Could not save completed match."
             )
+
+        # Only server-validated online match moves count towards Killer awards.
+        record_killer_awards(room.get("moves", []))
 
         ratings = {}
 
