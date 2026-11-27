@@ -1894,7 +1894,7 @@ def new_room(
         "over": False,
         "rated": bool(rated),
         "unlimited": int(seconds) == 0,
-        "last_clock_emit": now,
+        "last_clock_emit": time.monotonic(),
         "tournament_id": tournament_id,
         "tournament_match_id": tournament_match_id,
         "private": bool(private)
