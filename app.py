@@ -662,6 +662,7 @@ def player_profile(username):
                 item["name"] = detail.get("name") or item.get("name") or "Achievement"
                 item["description"] = detail.get("description") or item.get("description") or ""
                 item["icon"] = detail.get("icon") or item.get("icon") or "🏅"
+        achievement_rows.extend(get_unlocked_achievements(player["id"]))
         history_result = (
             supabase.table("match_history")
             .select("*")
@@ -1248,8 +1249,10 @@ def player_achievements():
             .eq("player_id", player["id"])
             .execute()
         )
+        achievement_rows = result.data or []
+        achievement_rows.extend(get_unlocked_achievements(player["id"]))
         return jsonify({
-            "achievements": result.data or [],
+            "achievements": achievement_rows,
             "killer_progress": {
                 item["piece_type"]: int(item.get("king_captures", 0) or 0)
                 for item in (killer_result.data or [])
@@ -1923,6 +1926,139 @@ def room_snapshot(room):
     }
 
 
+
+
+ACHIEVEMENT_DEFINITIONS = {
+    "first_victory": {
+        "name": "First Victory",
+        "description": "Win your first game.",
+        "icon": "🏆"
+    },
+    "getting_started": {
+        "name": "Getting Started",
+        "description": "Play 10 games.",
+        "icon": "🎮"
+    },
+    "veteran": {
+        "name": "Veteran",
+        "description": "Play 100 games.",
+        "icon": "⭐"
+    },
+    "winning_streak": {
+        "name": "Winning Streak",
+        "description": "Reach a 5-game win streak.",
+        "icon": "🔥"
+    },
+    "daily_dedication": {
+        "name": "Daily Dedication",
+        "description": "Complete 7 Daily Challenges.",
+        "icon": "📅"
+    },
+    "online_champion": {
+        "name": "Online Champion",
+        "description": "Win 25 online games.",
+        "icon": "👑"
+    }
+}
+
+
+def unlock_player_achievement(player_id, achievement_key):
+    definition = ACHIEVEMENT_DEFINITIONS.get(achievement_key)
+    if not player_id or not definition:
+        return
+
+    try:
+        table = supabase.table("player_achievement_unlocks")
+        existing = (
+            table.select("id")
+            .eq("player_id", player_id)
+            .eq("achievement_key", achievement_key)
+            .limit(1)
+            .execute()
+        )
+        if existing.data:
+            return
+
+        table.insert({
+            "player_id": player_id,
+            "achievement_key": achievement_key
+        }).execute()
+    except Exception:
+        app.logger.exception(
+            "Could not unlock achievement %s for player %s.",
+            achievement_key,
+            player_id
+        )
+
+
+def check_player_achievements(player_id):
+    if not player_id:
+        return
+
+    try:
+        stats = get_player_stats(player_id)
+        games = int(stats.get("games_played", 0) or 0)
+        wins = int(stats.get("wins", 0) or 0)
+        streak = int(
+            stats.get("longest_win_streak", 0)
+            or stats.get("longest_win_streak", 0)
+            or 0
+        )
+
+        if wins >= 1:
+            unlock_player_achievement(player_id, "first_victory")
+        if games >= 10:
+            unlock_player_achievement(player_id, "getting_started")
+        if games >= 100:
+            unlock_player_achievement(player_id, "veteran")
+        if streak >= 5:
+            unlock_player_achievement(player_id, "winning_streak")
+        if wins >= 25:
+            unlock_player_achievement(player_id, "online_champion")
+
+        daily = (
+            supabase.table("daily_challenge_queue_completions")
+            .select("id", count="exact")
+            .eq("player_id", player_id)
+            .execute()
+        )
+        if int(daily.count or 0) >= 7:
+            unlock_player_achievement(player_id, "daily_dedication")
+    except Exception:
+        app.logger.exception(
+            "Could not evaluate achievements for player %s.",
+            player_id
+        )
+
+
+def get_unlocked_achievements(player_id):
+    try:
+        result = (
+            supabase.table("player_achievement_unlocks")
+            .select("achievement_key, unlocked_at")
+            .eq("player_id", player_id)
+            .execute()
+        )
+        unlocked = []
+        for row in result.data or []:
+            definition = ACHIEVEMENT_DEFINITIONS.get(row.get("achievement_key"))
+            if definition:
+                unlocked.append({
+                    "achievement_id": row["achievement_key"],
+                    "name": definition["name"],
+                    "description": definition["description"],
+                    "icon": definition["icon"],
+                    "unlocked_at": row.get("unlocked_at")
+                })
+        return unlocked
+    except Exception:
+        app.logger.exception(
+            "Could not load achievements for player %s.",
+            player_id
+        )
+        return []
+
+
 def record_killer_awards(moves):
     """Count king captures by the piece that made them for each logged-in player."""
     piece_names = {"r": "rook", "n": "knight", "b": "bishop", "q": "queen", "p": "pawn", "k": "king"}
@@ -1990,8 +2126,11 @@ def finish_room(code, winner, reason):
                 "Could not save completed match."
             )
 
-        # Only server-validated online match moves count towards Killer awards.
+        # Only logged-in players have saved achievements and Killer Awards.
         record_killer_awards(room.get("moves", []))
+        for player_id in (room.get("white_id"), room.get("black_id")):
+            if player_id:
+                check_player_achievements(player_id)
 
         ratings = {}
 
@@ -3625,6 +3764,7 @@ def complete_daily_challenge():
             "challenge_id": challenge["id"],
             "player_id": player["id"]
         }).execute()
+        check_player_achievements(player["id"])
         return jsonify({"success": True})
     except Exception:
         return database_error("completing daily challenge")
