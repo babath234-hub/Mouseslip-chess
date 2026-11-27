@@ -7,1383 +7,457 @@
 <title>Mouseslip Chess</title>
 <meta name="description" content="Play Mouseslip Chess online against friends, random opponents or a computer.">
 <meta name="theme-color" content="#111827">
-
 <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
-
 <style>
 :root {
-    --bg: #10131c;
-    --panel: #1b2030;
-    --panel2: #252c3e;
-    --text: #f3f4f6;
-    --muted: #aab2c5;
-    --accent: #65a9ff;
-    --green: #36c98b;
-    --red: #ff6464;
-    --border: #343d52;
-    --light-square: #e8edf5;
-    --dark-square: #7795b5;
-}
-
-* {
-    box-sizing: border-box;
-}
-
-body {
-    margin: 0;
-    min-height: 100vh;
-    background: var(--bg);
-    color: var(--text);
-    font-family: Arial, Helvetica, sans-serif;
-}
-
-button, input, select, textarea {
-    font: inherit;
-}
-
-button {
-    cursor: pointer;
-}
-
-button:disabled {
-    opacity: .5;
-    cursor: not-allowed;
-}
-
-header {
-    background: #171c29;
-    border-bottom: 1px solid var(--border);
-    padding: 13px 20px;
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    gap: 12px;
-    flex-wrap: wrap;
-}
-
-.logo {
-    font-size: 23px;
-    font-weight: 900;
-    color: white;
-    cursor: pointer;
-}
-
-.logo span {
-    color: var(--accent);
-}
-
-#accountBar {
-    display: flex;
-    gap: 10px;
-    align-items: center;
-    flex-wrap: wrap;
-}
-
-.container {
-    width: min(1150px, 94%);
-    margin: 25px auto;
-}
-
-.screen {
-    display: none;
-}
-
-.screen.active {
-    display: block;
-}
-
-.panel {
-    background: var(--panel);
-    border: 1px solid var(--border);
-    border-radius: 14px;
-    padding: 20px;
-    margin-bottom: 16px;
-}
-
-h1, h2, h3 {
-    margin-top: 0;
-}
-
-h1 {
-    font-size: clamp(28px, 5vw, 44px);
-}
-
-p {
-    color: var(--muted);
-    line-height: 1.55;
-}
-
-button.primary {
-    background: var(--accent);
-    color: #10131c;
-    border: none;
-    border-radius: 9px;
-    padding: 12px 18px;
-    font-weight: bold;
-}
-
-button.secondary {
-    background: var(--panel2);
-    color: var(--text);
-    border: 1px solid var(--border);
-    border-radius: 9px;
-    padding: 11px 15px;
-}
-
-button.danger {
-    background: #6f303b;
-    color: white;
-    border: 1px solid #9c4654;
-    border-radius: 9px;
-    padding: 11px 15px;
-}
-
-button.success {
-    background: #176b4b;
-    color: white;
-    border: 1px solid #27986c;
-    border-radius: 9px;
-    padding: 11px 15px;
-}
-
-button:hover {
-    filter: brightness(1.12);
-}
-
-input, select, textarea {
-    width: 100%;
-    background: #111725;
-    border: 1px solid var(--border);
-    color: white;
-    border-radius: 8px;
-    padding: 12px;
-    margin: 7px 0 13px;
-}
-
-textarea {
-    resize: vertical;
-    min-height: 90px;
-}
-
-label {
-    color: var(--muted);
-    font-size: 14px;
-}
-
-.button-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-    gap: 12px;
-}
-
-.menu-button {
-    background: var(--panel);
-    border: 1px solid var(--border);
-    color: white;
-    border-radius: 13px;
-    padding: 22px 15px;
-    min-height: 95px;
-    font-size: 18px;
-    font-weight: bold;
-    text-align: left;
-}
-
-.menu-button span {
-    display: block;
-    font-size: 13px;
-    font-weight: normal;
-    color: var(--muted);
-    margin-top: 7px;
-}
-
-.row {
-    display: flex;
-    gap: 12px;
-    flex-wrap: wrap;
-    align-items: center;
-}
-
-.row > * {
-    flex: 1;
-    min-width: 120px;
-}
-
-.hidden {
-    display: none !important;
-}
-
-.muted {
-    color: var(--muted);
-}
-
-.message {
-    padding: 11px;
-    border-radius: 8px;
-    margin: 10px 0;
-    background: #26364d;
-    color: white;
-}
-
-.error {
-    background: #542b35;
-}
-
-.success-message {
-    background: #174b3c;
-}
-
-table {
-    width: 100%;
-    border-collapse: collapse;
-}
-
-th, td {
-    text-align: left;
-    border-bottom: 1px solid var(--border);
-    padding: 12px 8px;
-}
-
-th {
-    color: var(--muted);
-    font-size: 13px;
-}
-
-.scroll-table {
-    overflow-x: auto;
-}
-
-.stat-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(135px, 1fr));
-    gap: 12px;
-}
-
-.stat-card {
-    background: var(--panel2);
-    padding: 16px;
-    border-radius: 10px;
-}
-
-.stat-card strong {
-    display: block;
-    font-size: 26px;
-    margin-top: 8px;
-}
-
-.badge-card {
-    background: var(--panel2);
-    border: 1px solid var(--border);
-    padding: 13px;
-    border-radius: 10px;
-}
-
-.badge-card .badge-icon {
-    font-size: 27px;
-}
-
-nav {
-    display: flex;
-    gap: 7px;
-    flex-wrap: wrap;
-    margin-bottom: 18px;
-}
-
-nav button {
-    background: var(--panel2);
-    border: 1px solid var(--border);
-    color: white;
-    padding: 9px 12px;
-    border-radius: 8px;
-}
-
-#boardArea {
-    width: min(620px, 100%);
-    margin: 15px auto;
-    position: relative;
-}
-
-#board {
-    display: grid;
-    grid-template-columns: repeat(8, 1fr);
-    width: 100%;
-    aspect-ratio: 1;
-    border: 3px solid #3a465b;
-    user-select: none;
-    touch-action: manipulation;
-}
-
-.square {
-    position: relative;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-size: clamp(24px, 6vw, 53px);
-    cursor: pointer;
-    aspect-ratio: 1;
-}
-
-.square.light {
-    background: var(--light-square);
-}
-
-.square.dark {
-    background: var(--dark-square);
-}
-
-.square.selected {
-    box-shadow: inset 0 0 0 5px #f6d365;
-}
-
-.square.legal::after {
-    content: "";
-    position: absolute;
-    width: 23%;
-    height: 23%;
-    border-radius: 50%;
-    background: #253c4b88;
-}
-
-.square.capture::after {
-    width: 78%;
-    height: 78%;
-    border: 5px solid #c03939aa;
-    background: transparent;
-}
-
-.square.lastmove {
-    background-image: linear-gradient(#f7d35a66, #f7d35a66);
-}
-
-.piece {
-    z-index: 2;
-    line-height: 1;
-    text-shadow: 0 1px 2px #0005;
-}
-
-#arrowLayer {
-    position: absolute;
-    inset: 0;
-    width: 100%;
-    height: 100%;
-    pointer-events: none;
-    z-index: 4;
-}
-
-#gameInfo {
-    display: flex;
-    justify-content: space-between;
-    gap: 10px;
-    margin: 12px 0;
-}
-
-.clock {
-    background: #242b3c;
-    padding: 12px;
-    border-radius: 8px;
-    min-width: 100px;
-    text-align: center;
-    font-size: 22px;
-    font-weight: bold;
-}
-
-.clock.active {
-    background: #dce9ff;
-    color: #111827;
-}
-
-#chatMessages {
-    max-height: 180px;
-    overflow-y: auto;
-    background: #111725;
-    padding: 10px;
-    border-radius: 8px;
-}
-
-.chat-line {
-    padding: 5px 0;
-    border-bottom: 1px solid #293146;
-}
-
-#gameStatus {
-    text-align: center;
-    font-weight: bold;
-    margin: 12px;
-}
-
-#tournamentBracket {
-    display: grid;
-    grid-template-columns: repeat(5, minmax(150px, 1fr));
-    gap: 12px;
-    overflow-x: auto;
-}
-
-.round-column {
-    min-width: 150px;
-    background: #151b29;
-    padding: 10px;
-    border-radius: 9px;
-}
-
-.match-card {
-    background: var(--panel2);
-    border: 1px solid var(--border);
-    padding: 10px;
-    margin: 10px 0;
-    border-radius: 8px;
-    font-size: 13px;
-}
-
-#feedbackBox {
-    white-space: pre-wrap;
-}
-
-footer {
-    text-align: center;
-    color: var(--muted);
-    padding: 25px;
-    font-size: 13px;
-}
-
-@media (max-width: 600px) {
-    header {
-        padding: 12px;
-    }
-
-    .container {
-        width: 96%;
-        margin: 14px auto;
-    }
-
-    .panel {
-        padding: 14px;
-    }
-
-    #tournamentBracket {
-        grid-template-columns: repeat(5, 160px);
-    }
+    --bg:#10131c;--panel:#1b2030;--panel2:#252c3e;
+    --text:#f3f4f6;--muted:#aab2c5;--accent:#65a9ff;
+    --green:#36c98b;--red:#ff6464;--border:#343d52;
+    --light-square:#e8edf5;--dark-square:#7795b5;
+}
+*{box-sizing:border-box}
+body{margin:0;min-height:100vh;background:var(--bg);color:var(--text);font-family:Arial,Helvetica,sans-serif}
+button,input,select,textarea{font:inherit}
+button{cursor:pointer}
+button:disabled{opacity:.5;cursor:not-allowed}
+header{background:#171c29;border-bottom:1px solid var(--border);padding:13px 20px;display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap}
+.logo{font-size:23px;font-weight:900;color:white;cursor:pointer}
+.logo span{color:var(--accent)}
+#accountBar{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+.container{width:min(1150px,94%);margin:25px auto}
+.screen{display:none}
+.screen.active{display:block}
+.panel{background:var(--panel);border:1px solid var(--border);border-radius:14px;padding:20px;margin-bottom:16px}
+h1,h2,h3{margin-top:0}
+h1{font-size:clamp(28px,5vw,44px)}
+p{color:var(--muted);line-height:1.55}
+button.primary{background:var(--accent);color:#10131c;border:none;border-radius:9px;padding:12px 18px;font-weight:bold}
+button.secondary{background:var(--panel2);color:var(--text);border:1px solid var(--border);border-radius:9px;padding:11px 15px}
+button.danger{background:#6f303b;color:white;border:1px solid #9c4654;border-radius:9px;padding:11px 15px}
+button.success{background:#176b4b;color:white;border:1px solid #27986c;border-radius:9px;padding:11px 15px}
+button:hover{filter:brightness(1.12)}
+input,select,textarea{width:100%;background:#111725;border:1px solid var(--border);color:white;border-radius:8px;padding:12px;margin:7px 0 13px}
+textarea{resize:vertical;min-height:90px}
+label{color:var(--muted);font-size:14px}
+.button-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px}
+.menu-button{background:var(--panel);border:1px solid var(--border);color:white;border-radius:13px;padding:22px 15px;min-height:95px;font-size:18px;font-weight:bold;text-align:left}
+.menu-button span{display:block;font-size:13px;font-weight:normal;color:var(--muted);margin-top:7px}
+.row{display:flex;gap:12px;flex-wrap:wrap;align-items:center}
+.row>*{flex:1;min-width:120px}
+.hidden{display:none!important}
+.muted{color:var(--muted)}
+.message{padding:11px;border-radius:8px;margin:10px 0;background:#26364d;color:white}
+.error{background:#542b35}
+.success-message{background:#174b3c}
+table{width:100%;border-collapse:collapse}
+th,td{text-align:left;border-bottom:1px solid var(--border);padding:12px 8px}
+th{color:var(--muted);font-size:13px}
+.scroll-table{overflow-x:auto}
+.stat-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(135px,1fr));gap:12px}
+.stat-card{background:var(--panel2);padding:16px;border-radius:10px}
+.stat-card strong{display:block;font-size:26px;margin-top:8px}
+.badge-card{background:var(--panel2);border:1px solid var(--border);padding:13px;border-radius:10px}
+.badge-card .badge-icon{font-size:27px}
+nav{display:flex;gap:7px;flex-wrap:wrap;margin-bottom:18px}
+nav button{background:var(--panel2);border:1px solid var(--border);color:white;padding:9px 12px;border-radius:8px}
+#boardArea{width:min(620px,100%);margin:15px auto;position:relative}
+#board{display:grid;grid-template-columns:repeat(8,1fr);width:100%;aspect-ratio:1;border:3px solid #3a465b;user-select:none;touch-action:manipulation}
+.square{position:relative;display:flex;align-items:center;justify-content:center;font-size:clamp(24px,6vw,53px);cursor:pointer;aspect-ratio:1}
+.square.light{background:var(--light-square)}
+.square.dark{background:var(--dark-square)}
+.square.selected{box-shadow:inset 0 0 0 5px #f6d365}
+.square.legal::after{content:"";position:absolute;width:23%;height:23%;border-radius:50%;background:#253c4b88}
+.square.capture::after{width:78%;height:78%;border:5px solid #c03939aa;background:transparent}
+.square.lastmove{background-image:linear-gradient(#f7d35a66,#f7d35a66)}
+.piece{z-index:2;line-height:1;text-shadow:0 1px 2px #0005}
+#arrowLayer{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:4}
+#gameInfo{display:flex;justify-content:space-between;gap:10px;margin:12px 0}
+.clock{background:#242b3c;padding:12px;border-radius:8px;min-width:100px;text-align:center;font-size:22px;font-weight:bold}
+.clock.active{background:#dce9ff;color:#111827}
+#chatMessages{max-height:180px;overflow-y:auto;background:#111725;padding:10px;border-radius:8px}
+.chat-line{padding:5px 0;border-bottom:1px solid #293146}
+#gameStatus{text-align:center;font-weight:bold;margin:12px}
+#tournamentBracket{display:grid;grid-template-columns:repeat(5,minmax(150px,1fr));gap:12px;overflow-x:auto}
+.round-column{min-width:150px;background:#151b29;padding:10px;border-radius:9px}
+.match-card{background:var(--panel2);border:1px solid var(--border);padding:10px;margin:10px 0;border-radius:8px;font-size:13px}
+#feedbackBox{white-space:pre-wrap}
+footer{text-align:center;color:var(--muted);padding:25px;font-size:13px}
+@media(max-width:600px){
+header{padding:12px}.container{width:96%;margin:14px auto}
+.panel{padding:14px}#tournamentBracket{grid-template-columns:repeat(5,160px)}
 }
 </style>
 </head>
-
 <body>
 
-<button id="globalHomeButton" onclick="showScreen('homeScreen')"
-style="
-position: fixed;
-top: 15px;
-right: 15px;
-left: auto;
-z-index: 9999;
-padding: 10px 16px;
-background: #263449;
-color: white;
-border: none;
-border-radius: 8px;
-font-size: 
-
 <header>
-    <div class="logo" onclick="showScreen('homeScreen')">
-        MOUSESLIP <span>CHESS</span>
-    </div>
-
+    <div class="logo" onclick="showScreen('homeScreen')">MOUSESLIP <span>CHESS</span></div>
     <div id="accountBar">
         <span id="headerUsername">Not logged in</span>
-        <button class="secondary" onclick="showScreen('accountScreen')">
-            Account
-        </button>
+        <button class="secondary" onclick="showScreen('accountScreen')">Account</button>
     </div>
 </header>
 
 <div class="container">
 
-<!-- =======================================================
-HOME
-======================================================= -->
-
 <section id="homeScreen" class="screen active">
     <div class="panel">
         <h1>Mouseslip Chess</h1>
-        <p>
-            Chess with a twist. Choose your move, but watch out:
-            your mouse might slip!
-        </p>
-
+        <p>Chess with a twist. Choose your move, but watch out: your mouse might slip!</p>
         <div class="button-grid">
-            <button class="menu-button" onclick="showScreen('botSetupScreen')">
-                Play Against Bot
-                <span>Choose a difficulty and time control</span>
-            </button>
-
-            <button class="menu-button" onclick="showScreen('onlineSetupScreen')">
-                Play Online
-                <span>Find a random opponent</span>
-            </button>
-
-            <button class="menu-button" onclick="showScreen('leaderboardScreen')">
-                Leaderboard
-                <span>See the highest-rated players</span>
-            </button>
-
-            <button class="menu-button" onclick="showScreen('tournamentScreen'); loadTournament()">
-                Monthly Tournament
-                <span>Join the 32-player knockout</span>
-            </button>
-
-            <button class="menu-button" onclick="showScreen('profileScreen'); loadMyProfile()">
-                My Profile
-                <span>Statistics, achievements and history</span>
-            </button>
-
-            <button class="menu-button" onclick="showScreen('friendsScreen'); loadFriends()">
-                Friends
-                <span>Manage your friend requests</span>
-            </button>
-
-            <button class="menu-button" onclick="showScreen('communityScreen'); loadComments()">
-                Community
-                <span>Talk with other players</span>
-            </button>
-
-            <button class="menu-button" onclick="showScreen('hallScreen'); loadHallOfFame()">
-                Hall of Fame
-                <span>All-time records</span>
-            </button>
-
-            <button class="menu-button" onclick="showScreen('dailyScreen'); loadDailyChallenge()">
-                Daily Challenge
-                <span>See today's challenge</span>
-            </button>
-
-            <button class="menu-button" onclick="showScreen('rulesScreen')">
-                How to Play
-                <span>Learn the rules</span>
-            </button>
+            <button class="menu-button" onclick="showScreen('botSetupScreen')">Play Against Bot<span>Choose a difficulty and time control</span></button>
+            <button class="menu-button" onclick="showScreen('onlineSetupScreen')">Play Online<span>Find a random opponent</span></button>
+            <button class="menu-button" onclick="showScreen('leaderboardScreen')">Leaderboard<span>See the highest-rated players</span></button>
+            <button class="menu-button" onclick="showScreen('tournamentScreen');loadTournament()">Monthly Tournament<span>Join the 32-player knockout</span></button>
+            <button class="menu-button" onclick="showScreen('profileScreen');loadMyProfile()">My Profile<span>Statistics, achievements and history</span></button>
+            <button class="menu-button" onclick="showScreen('friendsScreen');loadFriends()">Friends<span>Manage your friend requests</span></button>
+            <button class="menu-button" onclick="showScreen('communityScreen');loadComments()">Community<span>Talk with other players</span></button>
+            <button class="menu-button" onclick="showScreen('hallScreen');loadHallOfFame()">Hall of Fame<span>All-time records</span></button>
+            <button class="menu-button" onclick="showScreen('dailyScreen');loadDailyChallenge()">Daily Challenge<span>See today's challenge</span></button>
+            <button class="menu-button" onclick="showScreen('rulesScreen')">How to Play<span>Learn the rules</span></button>
         </div>
     </div>
-
     <div class="panel">
         <h2>Game of the Day</h2>
-        <div id="gameOfDay">
-            <p>Loading featured game...</p>
-        </div>
+        <div id="gameOfDay"><p>Loading featured game...</p></div>
     </div>
 </section>
-
-
-<!-- =======================================================
-ACCOUNT
-======================================================= -->
 
 <section id="accountScreen" class="screen">
     <div class="panel">
         <h2>Account</h2>
-
         <div id="loggedOutArea">
             <h3>Log in</h3>
-
-            <label>Username</label>
-            <input id="loginUsername" autocomplete="username">
-
-            <label>Password</label>
-            <input id="loginPassword" type="password" autocomplete="current-password">
-
+            <label>Username</label><input id="loginUsername" autocomplete="username">
+            <label>Password</label><input id="loginPassword" type="password" autocomplete="current-password">
             <button class="primary" onclick="login()">Log in</button>
-
             <hr>
-
             <h3>Create an account</h3>
-
-            <label>Username</label>
-            <input id="registerUsername" autocomplete="username">
-
-            <label>Password</label>
-            <input id="registerPassword" type="password" autocomplete="new-password">
-
+            <label>Username</label><input id="registerUsername" autocomplete="username">
+            <label>Password</label><input id="registerPassword" type="password" autocomplete="new-password">
             <button class="primary" onclick="register()">Register</button>
         </div>
-
         <div id="loggedInArea" class="hidden">
-            <h3 id="accountName"></h3>
-            <p id="accountRating"></p>
-
-            <label>Change username</label>
-            <input id="newUsername" placeholder="New username">
-            <button class="secondary" onclick="changeUsername()">
-                Change username
-            </button>
-
-            <hr>
-
-            <button class="danger" onclick="logout()">Log out</button>
+            <h3 id="accountName"></h3><p id="accountRating"></p>
+            <label>Change username</label><input id="newUsername" placeholder="New username">
+            <button class="secondary" onclick="changeUsername()">Change username</button>
+            <hr><button class="danger" onclick="logout()">Log out</button>
         </div>
-
         <div id="accountMessage"></div>
     </div>
 </section>
 
-
-<!-- =======================================================
-BOT SETUP
-======================================================= -->
-
 <section id="botSetupScreen" class="screen">
     <div class="panel">
         <h2>Play Against Bot</h2>
-
         <label>Bot difficulty</label>
-        <select id="botDifficulty">
-            <option value="1">Easy</option>
-            <option value="2">Normal</option>
-            <option value="3">Hard</option>
-            <option value="4">Expert</option>
-        </select>
-
+        <select id="botDifficulty"><option value="1">Easy</option><option value="2">Normal</option><option value="3">Hard</option><option value="4">Expert</option></select>
         <label>Your colour</label>
-        <select id="botColor">
-            <option value="white">White</option>
-            <option value="black">Black</option>
-            <option value="random">Random</option>
-        </select>
-
+        <select id="botColor"><option value="white">White</option><option value="black">Black</option><option value="random">Random</option></select>
         <label>Time control</label>
-        <select id="botSeconds">
-            <option value="0">Unlimited</option>
-            <option value="60">1 minute</option>
-            <option value="180">3 minutes</option>
-            <option value="300" selected>5 minutes</option>
-            <option value="600">10 minutes</option>
-            <option value="900">15 minutes</option>
-        </select>
-
+        <select id="botSeconds"><option value="0">Unlimited</option><option value="60">1 minute</option><option value="180">3 minutes</option><option value="300" selected>5 minutes</option><option value="600">10 minutes</option><option value="900">15 minutes</option></select>
         <label>Increment</label>
-        <select id="botIncrement">
-            <option value="0">0 seconds</option>
-            <option value="1">1 second</option>
-            <option value="2">2 seconds</option>
-            <option value="5">5 seconds</option>
-            <option value="10">10 seconds</option>
-        </select>
-
-        <button class="primary" onclick="startBotGame()">
-            Start Game
-        </button>
-
-        <button class="secondary" onclick="showScreen('homeScreen')">
-            Back
-        </button>
+        <select id="botIncrement"><option value="0">0 seconds</option><option value="1">1 second</option><option value="2">2 seconds</option><option value="5">5 seconds</option><option value="10">10 seconds</option></select>
+        <button class="primary" onclick="startBotGame()">Start Game</button>
+        <button class="secondary" onclick="showScreen('homeScreen')">Back</button>
     </div>
 </section>
-
-
-<!-- =======================================================
-ONLINE SETUP
-======================================================= -->
 
 <section id="onlineSetupScreen" class="screen">
     <div class="panel">
         <h2>Play Online</h2>
-
         <p>Find a random opponent. Your rating changes by 10 points for a rated win or loss.</p>
-
         <label>Time control</label>
-        <select id="onlineSeconds">
-            <option value="60">1 minute</option>
-            <option value="180">3 minutes</option>
-            <option value="300" selected>5 minutes</option>
-            <option value="600">10 minutes</option>
-            <option value="900">15 minutes</option>
-        </select>
-
+        <select id="onlineSeconds"><option value="60">1 minute</option><option value="180">3 minutes</option><option value="300" selected>5 minutes</option><option value="600">10 minutes</option><option value="900">15 minutes</option></select>
         <label>Increment</label>
-        <select id="onlineIncrement">
-            <option value="0">0 seconds</option>
-            <option value="1">1 second</option>
-            <option value="2">2 seconds</option>
-            <option value="5">5 seconds</option>
-        </select>
-
-        <button class="primary" onclick="findOnlineMatch()">
-            Find Opponent
-        </button>
-
+        <select id="onlineIncrement"><option value="0">0 seconds</option><option value="1">1 second</option><option value="2">2 seconds</option><option value="5">5 seconds</option></select>
+        <button class="primary" onclick="findOnlineMatch()">Find Opponent</button>
         <div id="queueStatus"></div>
-        <button class="danger hidden" id="cancelQueueButton" onclick="cancelQueue()">
-            Cancel Search
-        </button>
+        <button class="danger hidden" id="cancelQueueButton" onclick="cancelQueue()">Cancel Search</button>
     </div>
-
     <div class="panel">
         <h2>Private Game</h2>
-
         <label>Time control</label>
-        <select id="privateSeconds">
-            <option value="0">Unlimited</option>
-            <option value="180">3 minutes</option>
-            <option value="300" selected>5 minutes</option>
-            <option value="600">10 minutes</option>
-        </select>
-
+        <select id="privateSeconds"><option value="0">Unlimited</option><option value="180">3 minutes</option><option value="300" selected>5 minutes</option><option value="600">10 minutes</option></select>
         <label>Increment</label>
-        <select id="privateIncrement">
-            <option value="0">0 seconds</option>
-            <option value="2">2 seconds</option>
-            <option value="5">5 seconds</option>
-        </select>
-
+        <select id="privateIncrement"><option value="0">0 seconds</option><option value="2">2 seconds</option><option value="5">5 seconds</option></select>
         <label>Rated game?</label>
-        <select id="privateRated">
-            <option value="false">Unrated</option>
-            <option value="true">Rated</option>
-        </select>
-
-        <button class="primary" onclick="createPrivateLobby()">
-            Create Private Lobby
-        </button>
-
+        <select id="privateRated"><option value="false">Unrated</option><option value="true">Rated</option></select>
+        <button class="primary" onclick="createPrivateLobby()">Create Private Lobby</button>
         <hr>
-
-        <label>Join with room code</label>
-        <input id="joinRoomCode" maxlength="6" placeholder="ABC123">
-
-        <button class="secondary" onclick="joinPrivateLobby()">
-            Join Lobby
-        </button>
-
+        <label>Join with room code</label><input id="joinRoomCode" maxlength="6" placeholder="ABC123">
+        <button class="secondary" onclick="joinPrivateLobby()">Join Lobby</button>
         <div id="privateStatus"></div>
     </div>
 </section>
 
-
-<!-- =======================================================
-LEADERBOARD
-======================================================= -->
-
 <section id="leaderboardScreen" class="screen">
     <div class="panel">
         <h2>Global Leaderboard</h2>
-
         <input id="leaderboardSearch" placeholder="Search username">
-
-        <button class="secondary" onclick="loadLeaderboard()">
-            Search
-        </button>
-
-        <div class="scroll-table">
-            <table>
-                <thead>
-                    <tr>
-                        <th>Rank</th>
-                        <th>Player</th>
-                        <th>Rating</th>
-                    </tr>
-                </thead>
-                <tbody id="leaderboardRows"></tbody>
-            </table>
-        </div>
-
-        <button class="secondary" onclick="loadSeasonalLeaderboard()">
-            Seasonal Rankings
-        </button>
-
+        <button class="secondary" onclick="loadLeaderboard()">Search</button>
+        <div class="scroll-table"><table>
+            <thead><tr><th>Rank</th><th>Player</th><th>Rating</th></tr></thead>
+            <tbody id="leaderboardRows"></tbody>
+        </table></div>
+        <button class="secondary" onclick="loadSeasonalLeaderboard()">Seasonal Rankings</button>
         <div id="seasonalRows"></div>
     </div>
 </section>
 
-
-<!-- =======================================================
-PROFILE AND STATISTICS
-======================================================= -->
-
 <section id="profileScreen" class="screen">
-    <div class="panel">
-        <h2>Player Profile</h2>
-        <div id="profileDetails">
-            <p>Loading profile...</p>
-        </div>
-    </div>
-
-    <div class="panel">
-        <h2>Statistics</h2>
-        <div id="profileStats" class="stat-grid"></div>
-    </div>
-
-    <div class="panel">
-        <h2>Achievements</h2>
-        <div id="profileAchievements" class="button-grid"></div>
-    </div>
-
-    <div class="panel">
-        <h2>Match History</h2>
-        <div id="profileHistory"></div>
-    </div>
-
+    <div class="panel"><h2>Player Profile</h2><div id="profileDetails"><p>Loading profile...</p></div></div>
+    <div class="panel"><h2>Statistics</h2><div id="profileStats" class="stat-grid"></div></div>
+    <div class="panel"><h2>Achievements</h2><div id="profileAchievements" class="button-grid"></div></div>
+    <div class="panel"><h2>Match History</h2><div id="profileHistory"></div></div>
     <div class="panel">
         <h2>Customise Your Game</h2>
-
         <label>Board theme</label>
-        <select id="boardTheme">
-            <option value="classic">Classic</option>
-            <option value="blue">Blue</option>
-            <option value="green">Green</option>
-            <option value="purple">Purple</option>
-            <option value="dark">Dark</option>
-        </select>
-
+        <select id="boardTheme"><option value="classic">Classic</option><option value="blue">Blue</option><option value="green">Green</option><option value="purple">Purple</option><option value="dark">Dark</option></select>
         <label>Piece theme</label>
-        <select id="pieceTheme">
-            <option value="classic">Classic</option>
-            <option value="modern">Modern</option>
-            <option value="simple">Simple</option>
-        </select>
-
-        <button class="primary" onclick="saveCustomization()">
-            Save Customisation
-        </button>
-
+        <select id="pieceTheme"><option value="classic">Classic</option><option value="modern">Modern</option><option value="simple">Simple</option></select>
+        <button class="primary" onclick="saveCustomization()">Save Customisation</button>
         <div id="customizationMessage"></div>
     </div>
 </section>
 
-
-<!-- =======================================================
-TOURNAMENT
-======================================================= -->
-
 <section id="tournamentScreen" class="screen">
     <div class="panel">
         <h2>Monthly Tournament</h2>
-
-        <p>
-            A 32-player knockout tournament. Players are randomly paired.
-            Winners advance and losers are eliminated.
-        </p>
-
-        <div id="tournamentStatus">
-            Loading tournament...
-        </div>
-
-        <button class="primary" onclick="joinTournament()">
-            Join Tournament
-        </button>
-
-        <button class="secondary" onclick="loadTournament()">
-            Refresh
-        </button>
+        <p>A 32-player knockout tournament. Players are randomly paired. Winners advance and losers are eliminated.</p>
+        <div id="tournamentStatus">Loading tournament...</div>
+        <button class="primary" onclick="joinTournament()">Join Tournament</button>
+        <button class="secondary" onclick="loadTournament()">Refresh</button>
     </div>
-
-    <div class="panel">
-        <h2>Tournament Bracket</h2>
-        <div id="tournamentBracket"></div>
-    </div>
+    <div class="panel"><h2>Tournament Bracket</h2><div id="tournamentBracket"></div></div>
 </section>
-
-
-<!-- =======================================================
-FRIENDS
-======================================================= -->
 
 <section id="friendsScreen" class="screen">
     <div class="panel">
         <h2>Friends</h2>
-
-        <label>Add a player</label>
-        <input id="friendUsername" placeholder="Username">
-
-        <button class="primary" onclick="sendFriendRequest()">
-            Send Friend Request
-        </button>
-
+        <label>Add a player</label><input id="friendUsername" placeholder="Username">
+        <button class="primary" onclick="sendFriendRequest()">Send Friend Request</button>
         <div id="friendMessage"></div>
     </div>
-
-    <div class="panel">
-        <h2>Friend Requests and Friends</h2>
-        <div id="friendsList"></div>
-    </div>
+    <div class="panel"><h2>Friend Requests and Friends</h2><div id="friendsList"></div></div>
 </section>
-
-
-<!-- =======================================================
-HALL OF FAME
-======================================================= -->
 
 <section id="hallScreen" class="screen">
     <div class="panel">
         <h2>Hall of Fame</h2>
-
-        <h3>Highest Rated Players</h3>
-        <div id="hallRating"></div>
-
-        <h3>Longest Win Streaks</h3>
-        <div id="hallStreaks"></div>
-
-        <h3>Most Games Played</h3>
-        <div id="hallGames"></div>
+        <h3>Highest Rated Players</h3><div id="hallRating"></div>
+        <h3>Longest Win Streaks</h3><div id="hallStreaks"></div>
+        <h3>Most Games Played</h3><div id="hallGames"></div>
     </div>
 </section>
-
-
-<!-- =======================================================
-DAILY CHALLENGE
-======================================================= -->
 
 <section id="dailyScreen" class="screen">
     <div class="panel">
         <h2>Daily Challenge</h2>
-
-        <div id="dailyChallenge">
-            Loading today's challenge...
-        </div>
-
-        <button class="primary" onclick="completeDailyChallenge()">
-            Mark as Completed
-        </button>
-
+        <div id="dailyChallenge">Loading today's challenge...</div>
+        <button class="primary" onclick="completeDailyChallenge()">Mark as Completed</button>
         <div id="dailyMessage"></div>
     </div>
 </section>
 
-
-<!-- =======================================================
-COMMUNITY
-======================================================= -->
-
 <section id="communityScreen" class="screen">
     <div class="panel">
         <h2>Community</h2>
-
         <div id="commentsList"></div>
-
-        <label>Write a comment</label>
-        <textarea id="commentInput" maxlength="500"></textarea>
-
-        <button class="primary" onclick="postComment()">
-            Post Comment
-        </button>
-
+        <label>Write a comment</label><textarea id="commentInput" maxlength="500"></textarea>
+        <button class="primary" onclick="postComment()">Post Comment</button>
         <div id="commentMessage"></div>
     </div>
 </section>
 
-
-<!-- =======================================================
-RULES
-======================================================= -->
-
 <section id="rulesScreen" class="screen">
     <div class="panel">
         <h2>How to Play Mouseslip Chess</h2>
-
-        <h3>The objective</h3>
-        <p>
-            Capture your opponent's king to win.
-        </p>
-
-        <h3>Mouseslips</h3>
-        <p>
-            When you choose a destination, your move may slip to another
-            eligible legal destination. Captures can also be affected.
-        </p>
-
-        <h3>Knights</h3>
-        <p>
-            Knights have a special mouseslip rule: alternative destinations
-            must follow the same rank direction as the intended move.
-        </p>
-
-        <h3>Promotion</h3>
-        <p>
-            Pawns reaching the final rank can promote to a queen, rook,
-            bishop or knight.
-        </p>
-
-        <h3>Castling</h3>
-        <p>
-            Castling is available when the relevant rights and squares
-            allow it.
-        </p>
-
-        <h3>Ratings</h3>
-        <p>
-            Rated online wins give 10 points and losses remove 10 points.
-            Private games can be rated or unrated.
-        </p>
+        <h3>The objective</h3><p>Capture your opponent's king to win.</p>
+        <h3>Mouseslips</h3><p>When you choose a destination, your move may slip to another eligible legal destination. Captures can also be affected.</p>
+        <h3>Knights</h3><p>Knights have a special mouseslip rule: alternative destinations must follow the same rank direction as the intended move.</p>
+        <h3>Promotion</h3><p>Pawns reaching the final rank can promote to a queen, rook, bishop or knight.</p>
+        <h3>Castling</h3><p>Castling is available when the relevant rights and squares allow it.</p>
+        <h3>Ratings</h3><p>Rated online wins give 10 points and losses remove 10 points. Private games can be rated or unrated.</p>
     </div>
 </section>
-
-
-<!-- =======================================================
-GAME SCREEN
-======================================================= -->
 
 <section id="gameScreen" class="screen">
     <div class="panel">
         <div class="row">
-            <div>
-                <h2 id="gameTitle">Mouseslip Chess</h2>
-                <p id="gameOpponent">Opponent</p>
-            </div>
-
-            <div>
-                <button class="secondary" onclick="showScreen('homeScreen')">
-                    Menu
-                </button>
-            </div>
+            <div><h2 id="gameTitle">Mouseslip Chess</h2><p id="gameOpponent">Opponent</p></div>
+            <div><button class="secondary" onclick="showScreen('homeScreen')">Menu</button></div>
         </div>
-
-        <div id="gameInfo">
-            <div class="clock" id="blackClock">--:--</div>
-            <div class="clock" id="whiteClock">--:--</div>
-        </div>
-
+        <div id="gameInfo"><div class="clock" id="blackClock">--:--</div><div class="clock" id="whiteClock">--:--</div></div>
         <div id="gameStatus">Your turn</div>
-
-        <div id="boardArea">
-            <div id="board"></div>
-            <svg id="arrowLayer"></svg>
-        </div>
-
+        <div id="boardArea"><div id="board"></div><svg id="arrowLayer"></svg></div>
         <div class="row">
-            <button class="secondary" onclick="restartGame()">
-                Restart
-            </button>
-
-            <button class="danger" onclick="resignGame()">
-                Resign
-            </button>
-
-            <button class="secondary" onclick="showScreen('homeScreen')">
-                Menu
-            </button>
+            <button class="secondary" onclick="restartGame()">Restart</button>
+            <button class="danger" onclick="resignGame()">Resign</button>
+            <button class="secondary" onclick="showScreen('homeScreen')">Menu</button>
         </div>
     </div>
-
     <div class="panel">
         <h3>Game Chat</h3>
-
         <div id="chatMessages"></div>
-
         <input id="chatInput" maxlength="300" placeholder="Message">
-
-        <button class="primary" onclick="sendChat()">
-            Send
-        </button>
+        <button class="primary" onclick="sendChat()">Send</button>
     </div>
 </section>
-
-
-<!-- =======================================================
-ADMIN
-======================================================= -->
 
 <section id="adminScreen" class="screen">
-    <div class="panel">
-        <h2>Admin Feedback Inbox</h2>
-        <div id="adminFeedback"></div>
-    </div>
+    <div class="panel"><h2>Admin Feedback Inbox</h2><div id="adminFeedback"></div></div>
 </section>
 
-
 </div>
-
-<footer>
-    Mouseslip Chess
-</footer>
-
-<!-- PART 2 CONTINUES BELOW -->
+<footer>Mouseslip Chess</footer>
 
 <script>
-// ============================================================
-// MOUSESLIP CHESS — FRONTEND PART 2
-// ============================================================
-
 const socket = io();
 
-let currentUser = null;
-let currentGame = null;
-let gameMode = null;
-let myColor = "white";
-let selectedSquare = null;
-let legalSquares = [];
-let board = [];
-let currentTurn = "white";
-let gameOver = false;
-let queueSearching = false;
-let privateRoomCode = null;
-let botDifficulty = 2;
-let botColor = "white";
-let botTime = 300;
-let botIncrement = 0;
-let whiteTime = 300;
-let blackTime = 300;
-let clockInterval = null;
-let lastMove = null;
-let gameMoves = [];
-let customBoardTheme = "classic";
-let customPieceTheme = "classic";
-let gameStartTime = 0;
-let analysisArrows = [];
+let currentUser=null,currentGame=null,gameMode=null,myColor="white";
+let selectedSquare=null,legalSquares=[],board=[],currentTurn="white";
+let gameOver=false,queueSearching=false,privateRoomCode=null;
+let botDifficulty=2,botColor="white",botTime=300,botIncrement=0;
+let whiteTime=300,blackTime=300,clockInterval=null,lastMove=null;
+let gameMoves=[],customBoardTheme="classic",customPieceTheme="classic";
+let gameStartTime=0,analysisArrows=[];
 
-const PIECES = {
-    K: "♔", Q: "♕", R: "♖", B: "♗", N: "♘", P: "♙",
-    k: "♚", q: "♛", r: "♜", b: "♝", n: "♞", p: "♟"
+const PIECES={
+K:"♔",Q:"♕",R:"♖",B:"♗",N:"♘",P:"♙",
+k:"♚",q:"♛",r:"♜",b:"♝",n:"♞",p:"♟"
 };
+const FILES="abcdefgh";
 
-const FILES = "abcdefgh";
-
-function api(url, options = {}) {
-    return fetch(url, {
-        credentials: "same-origin",
-        headers: {
-            "Content-Type": "application/json",
-            ...(options.headers || {})
-        },
+function api(url,options={}){
+    return fetch(url,{
+        credentials:"same-origin",
+        headers:{"Content-Type":"application/json",...(options.headers||{})},
         ...options
-    }).then(async response => {
-        let data = {};
-        try {
-            data = await response.json();
-        } catch (_) {}
-
-        if (!response.ok) {
-            throw new Error(data.error || "Request failed.");
-        }
-
+    }).then(async response=>{
+        let data={};
+        try{data=await response.json()}catch(_){}
+        if(!response.ok)throw new Error(data.error||"Request failed.");
         return data;
     });
 }
 
-function showMessage(id, message, error = false) {
-    const element = document.getElementById(id);
-    if (!element) return;
-
-    element.textContent = message;
-    element.className = "message" + (error ? " error" : " success-message");
+function showMessage(id,message,error=false){
+    const element=document.getElementById(id);
+    if(!element)return;
+    element.textContent=message;
+    element.className="message"+(error?" error":" success-message");
 }
-
-function showScreen(id) {
-    document.querySelectorAll(".screen").forEach(screen => {
-        screen.classList.remove("active");
-    });
-
-    const target = document.getElementById(id);
-    if (target) target.classList.add("active");
+function showScreen(id){
+    document.querySelectorAll(".screen").forEach(screen=>screen.classList.remove("active"));
+    const target=document.getElementById(id);
+    if(target)target.classList.add("active");
 }
-
-function requireLogin() {
-    if (!currentUser) {
+function requireLogin(){
+    if(!currentUser){
         showScreen("accountScreen");
-        showMessage("accountMessage", "Please log in first.", true);
+        showMessage("accountMessage","Please log in first.",true);
         return false;
     }
     return true;
 }
-
-function escapeHTML(value) {
-    return String(value ?? "").replace(/[&<>"']/g, char => ({
-        "&": "&amp;",
-        "<": "&lt;",
-        ">": "&gt;",
-        '"': "&quot;",
-        "'": "&#39;"
+function escapeHTML(value){
+    return String(value??"").replace(/[&<>"']/g,char=>({
+        "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"
     })[char]);
 }
 
-// ============================================================
 // ACCOUNT
-// ============================================================
-
-async function loadAccount() {
-    try {
-        const data = await api("/api/me");
-        currentUser = data.player || data.user || null;
+async function loadAccount(){
+    try{
+        const data=await api("/api/me");
+        currentUser=data.player||data.user||null;
         updateAccountUI();
-    } catch (_) {
-        currentUser = null;
-        updateAccountUI();
+    }catch(_){currentUser=null;updateAccountUI()}
+}
+function updateAccountUI(){
+    const loggedIn=!!currentUser;
+    document.getElementById("loggedOutArea").classList.toggle("hidden",loggedIn);
+    document.getElementById("loggedInArea").classList.toggle("hidden",!loggedIn);
+    document.getElementById("headerUsername").textContent=loggedIn?currentUser.username:"Not logged in";
+    if(loggedIn){
+        document.getElementById("accountName").textContent=currentUser.username;
+        document.getElementById("accountRating").textContent="Rating: "+currentUser.rating;
+        document.getElementById("newUsername").value=currentUser.username;
     }
 }
-
-function updateAccountUI() {
-    const loggedIn = !!currentUser;
-
-    document.getElementById("loggedOutArea").classList.toggle(
-        "hidden", loggedIn
-    );
-
-    document.getElementById("loggedInArea").classList.toggle(
-        "hidden", !loggedIn
-    );
-
-    document.getElementById("headerUsername").textContent =
-        loggedIn ? currentUser.username : "Not logged in";
-
-    if (loggedIn) {
-        document.getElementById("accountName").textContent =
-            currentUser.username;
-
-        document.getElementById("accountRating").textContent =
-            "Rating: " + currentUser.rating;
-
-        document.getElementById("newUsername").value =
-            currentUser.username;
-    }
+async function login(){
+    const username=document.getElementById("loginUsername").value.trim();
+    const password=document.getElementById("loginPassword").value;
+    try{
+        const data=await api("/api/login",{method:"POST",body:JSON.stringify({username,password})});
+        currentUser=data.player||data.user;updateAccountUI();
+        showMessage("accountMessage","Logged in successfully.");
+    }catch(error){showMessage("accountMessage",error.message,true)}
+}
+async function register(){
+    const username=document.getElementById("registerUsername").value.trim();
+    const password=document.getElementById("registerPassword").value;
+    try{
+        const data=await api("/api/register",{method:"POST",body:JSON.stringify({username,password})});
+        currentUser=data.player||data.user;updateAccountUI();
+        showMessage("accountMessage","Account created successfully.");
+    }catch(error){showMessage("accountMessage",error.message,true)}
+}
+async function logout(){
+    try{
+        await api("/api/logout",{method:"POST"});
+        currentUser=null;updateAccountUI();showScreen("homeScreen");
+    }catch(error){showMessage("accountMessage",error.message,true)}
+}
+async function changeUsername(){
+    if(!requireLogin())return;
+    const username=document.getElementById("newUsername").value.trim();
+    try{
+        const data=await api("/api/change-username",{method:"POST",body:JSON.stringify({username})});
+        currentUser=data.player||data.user||currentUser;
+        if(data.username)currentUser.username=data.username;
+        updateAccountUI();showMessage("accountMessage","Username changed.");
+    }catch(error){showMessage("accountMessage",error.message,true)}
 }
 
-async function login() {
-    const username = document.getElementById("loginUsername").value.trim();
-    const password = document.getElementById("loginPassword").value;
-
-    try {
-        const data = await api("/api/login", {
-            method: "POST",
-            body: JSON.stringify({ username, password })
-        });
-
-        currentUser = data.player || data.user;
-        updateAccountUI();
-        showMessage("accountMessage", "Logged in successfully.");
-    } catch (error) {
-        showMessage("accountMessage", error.message, true);
-    }
-}
-
-async function register() {
-    const username = document.getElementById("registerUsername").value.trim();
-    const password = document.getElementById("registerPassword").value;
-
-    try {
-        const data = await api("/api/register", {
-            method: "POST",
-            body: JSON.stringify({ username, password })
-        });
-
-        currentUser = data.player || data.user;
-        updateAccountUI();
-        showMessage("accountMessage", "Account created successfully.");
-    } catch (error) {
-        showMessage("accountMessage", error.message, true);
-    }
-}
-
-async function logout() {
-    try {
-        await api("/api/logout", { method: "POST" });
-        currentUser = null;
-        updateAccountUI();
-        showScreen("homeScreen");
-    } catch (error) {
-        showMessage("accountMessage", error.message, true);
-    }
-}
-
-async function changeUsername() {
-    if (!requireLogin()) return;
-
-    const username = document.getElementById("newUsername").value.trim();
-
-    try {
-        const data = await api("/api/change-username", {
-            method: "POST",
-            body: JSON.stringify({ username })
-        });
-
-        currentUser = data.player || data.user || currentUser;
-        if (data.username) currentUser.username = data.username;
-
-        updateAccountUI();
-        showMessage("accountMessage", "Username changed.");
-    } catch (error) {
-        showMessage("accountMessage", error.message, true);
-    }
-}
-
-// ============================================================
 // LEADERBOARD
-// ============================================================
-
-async function loadLeaderboard() {
-    const search = document.getElementById("leaderboardSearch").value.trim();
-
-    try {
-        const data = await api(
-            "/api/leaderboard" +
-            (search ? "?search=" + encodeURIComponent(search) : "")
-        );
-
-        const players = data.players || data.leaderboard || [];
-
-        document.getElementById("leaderboardRows").innerHTML =
-            players.map((player, index) => `
-                <tr>
-                    <td>${player.rank || index + 1}</td>
-                    <td>${escapeHTML(player.username)}</td>
-                    <td>${player.rating}</td>
-                </tr>
-            `).join("") || "<tr><td colspan='3'>No players found.</td></tr>";
-
-    } catch (error) {
-        document.getElementById("leaderboardRows").innerHTML =
-            `<tr><td colspan="3">${escapeHTML(error.message)}</td></tr>`;
+async function loadLeaderboard(){
+    const search=document.getElementById("leaderboardSearch").value.trim();
+    try{
+        const data=await api("/api/leaderboard"+(search?"?search="+encodeURIComponent(search):""));
+        const players=data.players||data.leaderboard||[];
+        document.getElementById("leaderboardRows").innerHTML=players.map((player,index)=>`
+            <tr><td>${player.rank||index+1}</td><td>${escapeHTML(player.username)}</td><td>${player.rating}</td></tr>
+        `).join("")||"<tr><td colspan='3'>No players found.</td></tr>";
+    }catch(error){
+        document.getElementById("leaderboardRows").innerHTML=`<tr><td colspan="3">${escapeHTML(error.message)}</td></tr>`;
     }
 }
-
-async function loadSeasonalLeaderboard() {
-    const element = document.getElementById("seasonalRows");
-    element.innerHTML = "<p>Seasonal rankings are not available yet.</p>";
+async function loadSeasonalLeaderboard(){
+    document.getElementById("seasonalRows").innerHTML="<p>Seasonal rankings are not available yet.</p>";
 }
 
-// ============================================================
 // BOT GAME
-// ============================================================
-
-function startBotGame() {
-    if (!currentUser) {
-        showScreen("accountScreen");
-        showMessage("accountMessage", "Log in before playing.");
-        return;
-    }
-
-    gameMode = "bot";
-    botDifficulty = Number(document.getElementById("botDifficulty").value);
-    botColor = document.getElementById("botColor").value;
-    botTime = Number(document.getElementById("botSeconds").value);
-    botIncrement = Number(document.getElementById("botIncrement").value);
-
-    if (botColor === "random") {
-        botColor = Math.random() < 0.5 ? "white" : "black";
-    }
-
-    myColor = botColor;
-    board = initialBoard();
-    currentTurn = "white";
-    gameOver = false;
-    selectedSquare = null;
-    legalSquares = [];
-    lastMove = null;
-    gameMoves = [];
-    whiteTime = botTime;
-    blackTime = botTime;
-    gameStartTime = Date.now();
-
-    document.getElementById("gameTitle").textContent = "Play Against Bot";
-    document.getElementById("gameOpponent").textContent =
-        "Bot — Difficulty " + botDifficulty;
-
-    showScreen("gameScreen");
-    renderBoard();
-    startClock();
-
-    if (botColor === "black") {
-        setTimeout(botMove, 500);
-    }
+function startBotGame(){
+    if(!currentUser){showScreen("accountScreen");showMessage("accountMessage","Log in before playing.");return}
+    gameMode="bot";
+    botDifficulty=Number(document.getElementById("botDifficulty").value);
+    botColor=document.getElementById("botColor").value;
+    botTime=Number(document.getElementById("botSeconds").value);
+    botIncrement=Number(document.getElementById("botIncrement").value);
+    if(botColor==="random")botColor=Math.random()<.5?"white":"black";
+    myColor=botColor;board=initialBoard();currentTurn="white";gameOver=false;
+    selectedSquare=null;legalSquares=[];lastMove=null;gameMoves=[];
+    whiteTime=botTime;blackTime=botTime;gameStartTime=Date.now();
+    document.getElementById("gameTitle").textContent="Play Against Bot";
+    document.getElementById("gameOpponent").textContent="Bot — Difficulty "+botDifficulty;
+    showScreen("gameScreen");renderBoard();startClock();
+    if(botColor==="black")setTimeout(botMove,500);
 }
 
-// ============================================================
 // CHESS RULE HELPERS
-// ============================================================
-
-function initialBoard() {
+function initialBoard(){
     return [
         ["r","n","b","q","k","b","n","r"],
         ["p","p","p","p","p","p","p","p"],
@@ -1395,1371 +469,630 @@ function initialBoard() {
         ["R","N","B","Q","K","B","N","R"]
     ];
 }
-
-function colorOf(piece) {
-    if (!piece || piece === ".") return null;
-    return piece === piece.toUpperCase() ? "white" : "black";
+function colorOf(piece){
+    if(!piece||piece===".")return null;
+    return piece===piece.toUpperCase()?"white":"black";
 }
+function inBounds(r,c){return r>=0&&r<8&&c>=0&&c<8}
+function copyBoard(source){return source.map(row=>row.slice())}
 
-function inBounds(r, c) {
-    return r >= 0 && r < 8 && c >= 0 && c < 8;
-}
-
-function copyBoard(source) {
-    return source.map(row => row.slice());
-}
-
-function getLegalMoves(r, c) {
-    const piece = board[r][c];
-    if (piece === ".") return [];
-
-    const color = colorOf(piece);
-    const type = piece.toLowerCase();
-    const moves = [];
-
-    function add(nr, nc) {
-        if (!inBounds(nr, nc)) return;
-
-        const target = board[nr][nc];
-
-        if (target === "." || colorOf(target) !== color) {
-            moves.push([nr, nc]);
+function getLegalMoves(r,c){
+    const piece=board[r][c];
+    if(piece===".")return [];
+    const color=colorOf(piece),type=piece.toLowerCase(),moves=[];
+    function add(nr,nc){
+        if(!inBounds(nr,nc))return;
+        const target=board[nr][nc];
+        if(target==="."||colorOf(target)!==color)moves.push([nr,nc]);
+    }
+    if(type==="p"){
+        const direction=color==="white"?-1:1,startRow=color==="white"?6:1;
+        if(inBounds(r+direction,c)&&board[r+direction][c]==="."){
+            moves.push([r+direction,c]);
+            if(r===startRow&&board[r+2*direction][c]===".")moves.push([r+2*direction,c]);
+        }
+        for(const dc of [-1,1]){
+            const nr=r+direction,nc=c+dc;
+            if(inBounds(nr,nc)&&board[nr][nc]!=="."&&colorOf(board[nr][nc])!==color)moves.push([nr,nc]);
         }
     }
-
-    if (type === "p") {
-        const direction = color === "white" ? -1 : 1;
-        const startRow = color === "white" ? 6 : 1;
-
-        if (inBounds(r + direction, c) &&
-            board[r + direction][c] === ".") {
-            moves.push([r + direction, c]);
-
-            if (r === startRow &&
-                board[r + 2 * direction][c] === ".") {
-                moves.push([r + 2 * direction, c]);
-            }
-        }
-
-        for (const dc of [-1, 1]) {
-            const nr = r + direction;
-            const nc = c + dc;
-
-            if (inBounds(nr, nc) &&
-                board[nr][nc] !== "." &&
-                colorOf(board[nr][nc]) !== color) {
-                moves.push([nr, nc]);
-            }
+    if(type==="n"){
+        for(const [dr,dc] of [[-2,-1],[-2,1],[-1,-2],[-1,2],[1,-2],[1,2],[2,-1],[2,1]])add(r+dr,c+dc);
+    }
+    if(type==="k"){
+        for(const [dr,dc] of [[-1,-1],[-1,0],[-1,1],[0,-1],[0,1],[1,-1],[1,0],[1,1]])add(r+dr,c+dc);
+        const home=color==="white"?7:0,king=color==="white"?"K":"k",rook=color==="white"?"R":"r";
+        if(r===home&&c===4&&piece===king){
+            if(board[home][7]===rook&&board[home][5]==="."&&board[home][6]===".")moves.push([home,6]);
+            if(board[home][0]===rook&&board[home][1]==="."&&board[home][2]==="."&&board[home][3]===".")moves.push([home,2]);
         }
     }
-
-    if (type === "n") {
-        for (const [dr, dc] of [
-            [-2,-1],[-2,1],[-1,-2],[-1,2],
-            [1,-2],[1,2],[2,-1],[2,1]
-        ]) add(r + dr, c + dc);
-    }
-
-    if (type === "k") {
-        for (const [dr, dc] of [
-            [-1,-1],[-1,0],[-1,1],[0,-1],
-            [0,1],[1,-1],[1,0],[1,1]
-        ]) add(r + dr, c + dc);
-
-        // Castling is only available in the bot frontend
-        // when the king and rook are in their original squares.
-        const home = color === "white" ? 7 : 0;
-        const king = color === "white" ? "K" : "k";
-        const rook = color === "white" ? "R" : "r";
-
-        if (r === home && c === 4 && piece === king) {
-            if (
-                board[home][7] === rook &&
-                board[home][5] === "." &&
-                board[home][6] === "."
-            ) moves.push([home, 6]);
-
-            if (
-                board[home][0] === rook &&
-                board[home][1] === "." &&
-                board[home][2] === "." &&
-                board[home][3] === "."
-            ) moves.push([home, 2]);
+    const directions=[];
+    if(type==="r"||type==="q")directions.push([-1,0],[1,0],[0,-1],[0,1]);
+    if(type==="b"||type==="q")directions.push([-1,-1],[-1,1],[1,-1],[1,1]);
+    for(const [dr,dc] of directions){
+        let nr=r+dr,nc=c+dc;
+        while(inBounds(nr,nc)){
+            if(board[nr][nc]===".")moves.push([nr,nc]);
+            else{if(colorOf(board[nr][nc])!==color)moves.push([nr,nc]);break}
+            nr+=dr;nc+=dc;
         }
     }
-
-    const directions = [];
-
-    if (type === "r" || type === "q") {
-        directions.push([-1,0],[1,0],[0,-1],[0,1]);
-    }
-
-    if (type === "b" || type === "q") {
-        directions.push([-1,-1],[-1,1],[1,-1],[1,1]);
-    }
-
-    for (const [dr, dc] of directions) {
-        let nr = r + dr;
-        let nc = c + dc;
-
-        while (inBounds(nr, nc)) {
-            if (board[nr][nc] === ".") {
-                moves.push([nr, nc]);
-            } else {
-                if (colorOf(board[nr][nc]) !== color) {
-                    moves.push([nr, nc]);
-                }
-                break;
-            }
-
-            nr += dr;
-            nc += dc;
-        }
-    }
-
     return moves;
 }
 
-function applyLocalMove(start, end, promotion = "q") {
-    const [r, c] = start;
-    const [nr, nc] = end;
-    const piece = board[r][c];
-
-    if (!piece || piece === ".") return;
-
-    const type = piece.toLowerCase();
-    const color = colorOf(piece);
-    const captured = board[nr][nc];
-
-    board[r][c] = ".";
-
-    if (type === "k" && Math.abs(nc - c) === 2) {
-        if (nc === 6) {
-            board[r][5] = board[r][7];
-            board[r][7] = ".";
-        } else {
-            board[r][3] = board[r][0];
-            board[r][0] = ".";
-        }
+function applyLocalMove(start,end,promotion="q"){
+    const [r,c]=start,[nr,nc]=end,piece=board[r][c];
+    if(!piece||piece===".")return;
+    const type=piece.toLowerCase(),color=colorOf(piece),captured=board[nr][nc];
+    board[r][c]=".";
+    if(type==="k"&&Math.abs(nc-c)===2){
+        if(nc===6){board[r][5]=board[r][7];board[r][7]="."}
+        else{board[r][3]=board[r][0];board[r][0]="."}
     }
-
-    if (type === "p" && (nr === 0 || nr === 7)) {
-        const chosen = promotion || "q";
-        board[nr][nc] = color === "white"
-            ? chosen.toUpperCase()
-            : chosen.toLowerCase();
-    } else {
-        board[nr][nc] = piece;
-    }
-
-    lastMove = {
-        from: start,
-        to: end
-    };
-
-    gameMoves.push({
-        from: squareName(r, c),
-        to: squareName(nr, nc),
-        piece,
-        captured
-    });
-
+    if(type==="p"&&(nr===0||nr===7)){
+        const chosen=promotion||"q";
+        board[nr][nc]=color==="white"?chosen.toUpperCase():chosen.toLowerCase();
+    }else board[nr][nc]=piece;
+    lastMove={from:start,to:end};
+    gameMoves.push({from:squareName(r,c),to:squareName(nr,nc),piece,captured});
     return captured;
 }
+function squareName(r,c){return FILES[c]+(8-r)}
+function randomPromotion(){return ["q","r","b","n"][Math.floor(Math.random()*4)]}
 
-function squareName(r, c) {
-    return FILES[c] + (8 - r);
-}
-
-function randomPromotion() {
-    return ["q", "r", "b", "n"][
-        Math.floor(Math.random() * 4)
-    ];
-}
-
-// ============================================================
 // MOUSESLIP
-// ============================================================
-
-function chooseSlip(start, intended, destinations) {
-    if (!destinations.length) return intended;
-
-    const piece = board[start[0]][start[1]];
-    const isKnight = piece.toLowerCase() === "n";
-
-    let alternatives = destinations.filter(move =>
-        move[0] !== intended[0] || move[1] !== intended[1]
-    );
-
-    if (isKnight) {
-        const intendedDirection = Math.sign(intended[0] - start[0]);
-
-        alternatives = alternatives.filter(move =>
-            Math.sign(move[0] - start[0]) === intendedDirection
-        );
+function chooseSlip(start,intended,destinations){
+    if(!destinations.length)return intended;
+    const piece=board[start[0]][start[1]],isKnight=piece.toLowerCase()==="n";
+    let alternatives=destinations.filter(move=>move[0]!==intended[0]||move[1]!==intended[1]);
+    if(isKnight){
+        const intendedDirection=Math.sign(intended[0]-start[0]);
+        alternatives=alternatives.filter(move=>Math.sign(move[0]-start[0])===intendedDirection);
     }
-
-    if (!alternatives.length) return intended;
-
-    if (Math.random() < 0.35) {
-        return alternatives[
-            Math.floor(Math.random() * alternatives.length)
-        ];
-    }
-
+    if(!alternatives.length)return intended;
+    if(Math.random()<.35)return alternatives[Math.floor(Math.random()*alternatives.length)];
     return intended;
 }
 
-// ============================================================
 // BOARD RENDERING
-// ============================================================
-
-function renderBoard() {
-    const element = document.getElementById("board");
-    if (!element) return;
-
-    element.innerHTML = "";
-
-    const flipped = myColor === "black";
-
-    for (let displayR = 0; displayR < 8; displayR++) {
-        for (let displayC = 0; displayC < 8; displayC++) {
-            const r = flipped ? 7 - displayR : displayR;
-            const c = flipped ? 7 - displayC : displayC;
-
-            const square = document.createElement("div");
-            square.className =
-                "square " + ((r + c) % 2 === 0 ? "light" : "dark");
-
-            if (
-                selectedSquare &&
-                selectedSquare[0] === r &&
-                selectedSquare[1] === c
-            ) {
-                square.classList.add("selected");
-            }
-
-            if (lastMove &&
-                ((lastMove.from[0] === r && lastMove.from[1] === c) ||
-                 (lastMove.to[0] === r && lastMove.to[1] === c))) {
-                square.classList.add("lastmove");
-            }
-
-            if (legalSquares.some(move =>
-                move[0] === r && move[1] === c
-            )) {
+function renderBoard(){
+    const element=document.getElementById("board");
+    if(!element)return;
+    element.innerHTML="";
+    const flipped=myColor==="black";
+    for(let displayR=0;displayR<8;displayR++){
+        for(let displayC=0;displayC<8;displayC++){
+            const r=flipped?7-displayR:displayR,c=flipped?7-displayC:displayC;
+            const square=document.createElement("div");
+            square.className="square "+((r+c)%2===0?"light":"dark");
+            if(selectedSquare&&selectedSquare[0]===r&&selectedSquare[1]===c)square.classList.add("selected");
+            if(lastMove&&((lastMove.from[0]===r&&lastMove.from[1]===c)||(lastMove.to[0]===r&&lastMove.to[1]===c)))square.classList.add("lastmove");
+            if(legalSquares.some(move=>move[0]===r&&move[1]===c)){
                 square.classList.add("legal");
-
-                if (board[r][c] !== ".") {
-                    square.classList.add("capture");
-                }
+                if(board[r][c]!==".")square.classList.add("capture");
             }
-
-            const piece = board[r][c];
-
-            if (piece !== ".") {
-                const pieceElement = document.createElement("span");
-                pieceElement.className = "piece";
-                pieceElement.textContent = PIECES[piece] || piece;
+            const piece=board[r][c];
+            if(piece!=="."){
+                const pieceElement=document.createElement("span");
+                pieceElement.className="piece";pieceElement.textContent=PIECES[piece]||piece;
                 square.appendChild(pieceElement);
             }
-
-            square.addEventListener("click", () => {
-                handleSquareClick(r, c);
-            });
-
+            square.addEventListener("click",()=>handleSquareClick(r,c));
             element.appendChild(square);
         }
     }
-
     applyBoardTheme();
 }
-
-function applyBoardTheme() {
-    const squares = document.querySelectorAll(".square");
-
-    const themes = {
-        classic: ["#e8edf5", "#7795b5"],
-        blue: ["#dceaff", "#5486bd"],
-        green: ["#e5efda", "#82a66c"],
-        purple: ["#eee2fa", "#9576b4"],
-        dark: ["#b3b3b3", "#565656"]
+function applyBoardTheme(){
+    const themes={
+        classic:["#e8edf5","#7795b5"],blue:["#dceaff","#5486bd"],
+        green:["#e5efda","#82a66c"],purple:["#eee2fa","#9576b4"],
+        dark:["#b3b3b3","#565656"]
     };
-
-    const theme = themes[customBoardTheme] || themes.classic;
-
-    squares.forEach(square => {
-        if (square.classList.contains("light")) {
-            square.style.backgroundColor = theme[0];
-        } else {
-            square.style.backgroundColor = theme[1];
-        }
+    const theme=themes[customBoardTheme]||themes.classic;
+    document.querySelectorAll(".square").forEach(square=>{
+        square.style.backgroundColor=square.classList.contains("light")?theme[0]:theme[1];
     });
 }
 
-// ============================================================
 // PLAYER INPUT
-// ============================================================
-
-function handleSquareClick(r, c) {
-    if (gameOver) return;
-
-    const piece = board[r][c];
-
-    if (gameMode === "online" && currentTurn !== myColor) return;
-
-    if (gameMode === "bot" && currentTurn !== myColor) return;
-
-    if (!selectedSquare) {
-        if (piece !== "." && colorOf(piece) === currentTurn) {
-            selectedSquare = [r, c];
-            legalSquares = getLegalMoves(r, c);
-            renderBoard();
+function handleSquareClick(r,c){
+    if(gameOver)return;
+    const piece=board[r][c];
+    if((gameMode==="online"||gameMode==="bot")&&currentTurn!==myColor)return;
+    if(!selectedSquare){
+        if(piece!=="."&&colorOf(piece)===currentTurn){
+            selectedSquare=[r,c];legalSquares=getLegalMoves(r,c);renderBoard();
         }
         return;
     }
-
-    if (selectedSquare[0] === r && selectedSquare[1] === c) {
-        selectedSquare = null;
-        legalSquares = [];
-        renderBoard();
-        return;
+    if(selectedSquare[0]===r&&selectedSquare[1]===c){
+        selectedSquare=null;legalSquares=[];renderBoard();return;
     }
-
-    const intended = [r, c];
-
-    const legal = legalSquares.some(move =>
-        move[0] === r && move[1] === c
-    );
-
-    if (!legal) {
-        if (piece !== "." && colorOf(piece) === currentTurn) {
-            selectedSquare = [r, c];
-            legalSquares = getLegalMoves(r, c);
-        } else {
-            selectedSquare = null;
-            legalSquares = [];
-        }
-
-        renderBoard();
-        return;
+    const intended=[r,c];
+    const legal=legalSquares.some(move=>move[0]===r&&move[1]===c);
+    if(!legal){
+        if(piece!=="."&&colorOf(piece)===currentTurn){
+            selectedSquare=[r,c];legalSquares=getLegalMoves(r,c);
+        }else{selectedSquare=null;legalSquares=[]}
+        renderBoard();return;
     }
-
-    const start = selectedSquare;
-    const slipped = chooseSlip(start, intended, legalSquares);
-
-    selectedSquare = null;
-    legalSquares = [];
-
-    if (gameMode === "online") {
-        const promotion =
-            board[start[0]][start[1]].toLowerCase() === "p" &&
-            (slipped[0] === 0 || slipped[0] === 7)
-                ? randomPromotion()
-                : "q";
-
-        socket.emit("online_move", {
-            from: squareName(start[0], start[1]),
-            to: squareName(slipped[0], slipped[1]),
+    const start=selectedSquare;
+    const slipped=chooseSlip(start,intended,legalSquares);
+    selectedSquare=null;legalSquares=[];
+    if(gameMode==="online"){
+        const promotion=board[start[0]][start[1]].toLowerCase()==="p"&&(slipped[0]===0||slipped[0]===7)?randomPromotion():"q";
+        socket.emit("online_move",{
+            from:squareName(start[0],start[1]),
+            to:squareName(slipped[0],slipped[1]),
+            intended_to:squareName(intended[0],intended[1]),
             promotion
         });
-
         return;
     }
-
-    const movingColor = currentTurn;
-    const captured = applyLocalMove(start, slipped, randomPromotion());
-
-    if (captured && captured.toLowerCase() === "k") {
-        endLocalGame(movingColor, "king captured");
-        return;
+    const movingColor=currentTurn;
+    const captured=applyLocalMove(start,slipped,randomPromotion());
+    if(captured&&captured.toLowerCase()==="k"){endLocalGame(movingColor,"king captured");return}
+    currentTurn=movingColor==="white"?"black":"white";
+    if(movingColor===myColor&&botIncrement){
+        if(movingColor==="white")whiteTime+=botIncrement;else blackTime+=botIncrement;
     }
-
-    currentTurn = movingColor === "white" ? "black" : "white";
-
-    if (movingColor === myColor && botIncrement) {
-        if (movingColor === "white") whiteTime += botIncrement;
-        else blackTime += botIncrement;
-    }
-
     renderBoard();
-
-    if (currentTurn !== myColor) {
-        setTimeout(botMove, 350);
-    }
+    if(currentTurn!==myColor)setTimeout(botMove,350);
 }
 
-// ============================================================
 // BOT
-// ============================================================
-
-function allMovesFor(color) {
-    const moves = [];
-
-    for (let r = 0; r < 8; r++) {
-        for (let c = 0; c < 8; c++) {
-            if (board[r][c] !== "." && colorOf(board[r][c]) === color) {
-                for (const destination of getLegalMoves(r, c)) {
-                    moves.push({
-                        from: [r, c],
-                        to: destination
-                    });
-                }
-            }
+function allMovesFor(color){
+    const moves=[];
+    for(let r=0;r<8;r++)for(let c=0;c<8;c++){
+        if(board[r][c]!=="."&&colorOf(board[r][c])===color){
+            for(const destination of getLegalMoves(r,c))moves.push({from:[r,c],to:destination});
         }
     }
-
     return moves;
 }
-
-function evaluateBoard() {
-    const values = {
-        p: 100,
-        n: 320,
-        b: 330,
-        r: 500,
-        q: 900,
-        k: 20000
-    };
-
-    let score = 0;
-
-    for (let r = 0; r < 8; r++) {
-        for (let c = 0; c < 8; c++) {
-            const piece = board[r][c];
-
-            if (piece === ".") continue;
-
-            const value = values[piece.toLowerCase()] || 0;
-            score += colorOf(piece) === "white" ? value : -value;
-        }
+function evaluateBoard(){
+    const values={p:100,n:320,b:330,r:500,q:900,k:20000};
+    let score=0;
+    for(let r=0;r<8;r++)for(let c=0;c<8;c++){
+        const piece=board[r][c];if(piece===".")continue;
+        const value=values[piece.toLowerCase()]||0;
+        score+=colorOf(piece)==="white"?value:-value;
     }
-
     return score;
 }
-
-function chooseBotMove() {
-    const moves = allMovesFor(currentTurn);
-
-    if (!moves.length) return null;
-
-    if (botDifficulty === 1 || Math.random() < 0.25) {
-        return moves[Math.floor(Math.random() * moves.length)];
-    }
-
-    let bestMove = null;
-    let bestScore = currentTurn === "white"
-        ? -Infinity
-        : Infinity;
-
-    for (const move of moves) {
-        const oldBoard = copyBoard(board);
-
-        applyLocalMove(move.from, move.to, "q");
-        const score = evaluateBoard();
-
-        board = oldBoard;
-        gameMoves.pop();
-        lastMove = null;
-
-        if (
-            (currentTurn === "white" && score > bestScore) ||
-            (currentTurn === "black" && score < bestScore)
-        ) {
-            bestScore = score;
-            bestMove = move;
+function chooseBotMove(){
+    const moves=allMovesFor(currentTurn);
+    if(!moves.length)return null;
+    if(botDifficulty===1||Math.random()<.25)return moves[Math.floor(Math.random()*moves.length)];
+    let bestMove=null,bestScore=currentTurn==="white"?-Infinity:Infinity;
+    for(const move of moves){
+        const oldBoard=copyBoard(board);
+        applyLocalMove(move.from,move.to,"q");
+        const score=evaluateBoard();
+        board=oldBoard;gameMoves.pop();lastMove=null;
+        if((currentTurn==="white"&&score>bestScore)||(currentTurn==="black"&&score<bestScore)){
+            bestScore=score;bestMove=move;
         }
     }
-
-    return bestMove || moves[0];
+    return bestMove||moves[0];
 }
-
-function botMove() {
-    if (gameOver || gameMode !== "bot" || currentTurn === myColor) {
-        return;
+function botMove(){
+    if(gameOver||gameMode!=="bot"||currentTurn===myColor)return;
+    const move=chooseBotMove();
+    if(!move){endLocalGame(myColor,"no available moves");return}
+    const destinations=getLegalMoves(move.from[0],move.from[1]);
+    const destination=chooseSlip(move.from,move.to,destinations);
+    const movingColor=currentTurn;
+    const captured=applyLocalMove(move.from,destination,randomPromotion());
+    if(captured&&captured.toLowerCase()==="k"){endLocalGame(movingColor,"king captured");return}
+    currentTurn=currentTurn==="white"?"black":"white";
+    if(botIncrement){
+        if(movingColor==="white")whiteTime+=botIncrement;else blackTime+=botIncrement;
     }
-
-    const move = chooseBotMove();
-
-    if (!move) {
-        endLocalGame(myColor, "no available moves");
-        return;
-    }
-
-    const destinations = getLegalMoves(
-        move.from[0],
-        move.from[1]
-    );
-
-    const destination = chooseSlip(
-        move.from,
-        move.to,
-        destinations
-    );
-
-    const movingColor = currentTurn;
-
-    const captured = applyLocalMove(
-        move.from,
-        destination,
-        randomPromotion()
-    );
-
-    if (captured && captured.toLowerCase() === "k") {
-        endLocalGame(movingColor, "king captured");
-        return;
-    }
-
-    currentTurn = currentTurn === "white" ? "black" : "white";
-
-    if (botIncrement) {
-        if (movingColor === "white") whiteTime += botIncrement;
-        else blackTime += botIncrement;
-    }
-
     renderBoard();
 }
 
-// ============================================================
 // LOCAL GAME RESULT
-// ============================================================
-
-function endLocalGame(winner, reason) {
-    gameOver = true;
-    stopClock();
-
-    document.getElementById("gameStatus").textContent =
-        (winner === myColor ? "You win!" : "You lose!") +
-        " — " + reason;
+function endLocalGame(winner,reason){
+    gameOver=true;stopClock();
+    document.getElementById("gameStatus").textContent=(winner===myColor?"You win!":"You lose!")+" — "+reason;
 }
 
-// ============================================================
 // CLOCKS
-// ============================================================
-
-function formatTime(seconds) {
-    if (seconds <= 0) return "0:00";
-
-    const minutes = Math.floor(seconds / 60);
-    const remainder = Math.floor(seconds % 60);
-
-    return minutes + ":" + String(remainder).padStart(2, "0");
+function formatTime(seconds){
+    if(seconds<=0)return "0:00";
+    const minutes=Math.floor(seconds/60),remainder=Math.floor(seconds%60);
+    return minutes+":"+String(remainder).padStart(2,"0");
 }
-
-function updateClocks() {
-    document.getElementById("whiteClock").textContent =
-        formatTime(whiteTime);
-
-    document.getElementById("blackClock").textContent =
-        formatTime(blackTime);
-
-    document.getElementById("whiteClock").classList.toggle(
-        "active", currentTurn === "white"
-    );
-
-    document.getElementById("blackClock").classList.toggle(
-        "active", currentTurn === "black"
-    );
+function updateClocks(){
+    document.getElementById("whiteClock").textContent=formatTime(whiteTime);
+    document.getElementById("blackClock").textContent=formatTime(blackTime);
+    document.getElementById("whiteClock").classList.toggle("active",currentTurn==="white");
+    document.getElementById("blackClock").classList.toggle("active",currentTurn==="black");
 }
-
-function startClock() {
+function startClock(){
     stopClock();
-
-    if (gameMode === "online" && !whiteTime && !blackTime) return;
-
+    if(gameMode==="online"&&!whiteTime&&!blackTime)return;
     updateClocks();
-
-    clockInterval = setInterval(() => {
-        if (gameOver) return;
-
-        if (gameMode === "bot") {
-            if (currentTurn === "white") whiteTime -= 1;
-            else blackTime -= 1;
-
-            if (whiteTime <= 0) {
-                whiteTime = 0;
-                endLocalGame("black", "time");
-            }
-
-            if (blackTime <= 0) {
-                blackTime = 0;
-                endLocalGame("white", "time");
-            }
+    clockInterval=setInterval(()=>{
+        if(gameOver)return;
+        if(gameMode==="bot"){
+            if(currentTurn==="white")whiteTime-=1;else blackTime-=1;
+            if(whiteTime<=0){whiteTime=0;endLocalGame("black","time")}
+            if(blackTime<=0){blackTime=0;endLocalGame("white","time")}
         }
-
         updateClocks();
-    }, 1000);
+    },1000);
 }
+function stopClock(){if(clockInterval){clearInterval(clockInterval);clockInterval=null}}
 
-function stopClock() {
-    if (clockInterval) {
-        clearInterval(clockInterval);
-        clockInterval = null;
-    }
-}
-
-// ============================================================
 // ONLINE MATCHMAKING
-// ============================================================
-
-function findOnlineMatch() {
-    if (!requireLogin()) return;
-
-    gameMode = "online";
-    queueSearching = true;
-
-    document.getElementById("queueStatus").textContent =
-        "Searching for an opponent...";
-
+function findOnlineMatch(){
+    if(!requireLogin())return;
+    gameMode="online";queueSearching=true;
+    document.getElementById("queueStatus").textContent="Searching for an opponent...";
     document.getElementById("cancelQueueButton").classList.remove("hidden");
-
-    socket.emit("find_match", {
-        seconds: Number(document.getElementById("onlineSeconds").value),
-        increment: Number(document.getElementById("onlineIncrement").value)
+    socket.emit("find_match",{
+        seconds:Number(document.getElementById("onlineSeconds").value),
+        increment:Number(document.getElementById("onlineIncrement").value)
     });
 }
-
-async function cancelQueue() {
-    queueSearching = false;
-
-    try {
-        await api("/api/online/leave", { method: "POST" });
-    } catch (_) {}
-
-    document.getElementById("queueStatus").textContent =
-        "Search cancelled.";
-
+async function cancelQueue(){
+    queueSearching=false;
+    try{await api("/api/online/leave",{method:"POST"})}catch(_){}
+    document.getElementById("queueStatus").textContent="Search cancelled.";
     document.getElementById("cancelQueueButton").classList.add("hidden");
 }
-
-function createPrivateLobby() {
-    if (!requireLogin()) return;
-
-    gameMode = "online";
-
-    socket.emit("create_private_lobby", {
-        seconds: Number(document.getElementById("privateSeconds").value),
-        increment: Number(document.getElementById("privateIncrement").value),
-        rated: document.getElementById("privateRated").value === "true"
+function createPrivateLobby(){
+    if(!requireLogin())return;
+    gameMode="online";
+    socket.emit("create_private_lobby",{
+        seconds:Number(document.getElementById("privateSeconds").value),
+        increment:Number(document.getElementById("privateIncrement").value),
+        rated:document.getElementById("privateRated").value==="true"
     });
-
-    document.getElementById("privateStatus").textContent =
-        "Creating lobby...";
+    document.getElementById("privateStatus").textContent="Creating lobby...";
+}
+function joinPrivateLobby(){
+    if(!requireLogin())return;
+    const code=document.getElementById("joinRoomCode").value.trim().toUpperCase();
+    if(code.length!==6){showMessage("privateStatus","Enter a six-character room code.",true);return}
+    gameMode="online";socket.emit("join_private_lobby",{code});
+    document.getElementById("privateStatus").textContent="Joining lobby...";
 }
 
-function joinPrivateLobby() {
-    if (!requireLogin()) return;
-
-    const code = document.getElementById("joinRoomCode").value.trim().toUpperCase();
-
-    if (code.length !== 6) {
-        showMessage("privateStatus", "Enter a six-character room code.", true);
-        return;
-    }
-
-    gameMode = "online";
-    socket.emit("join_private_lobby", { code });
-
-    document.getElementById("privateStatus").textContent =
-        "Joining lobby...";
-}
-
-// ============================================================
 // SOCKET EVENTS
-// ============================================================
-
-socket.on("queue_joined", data => {
-    document.getElementById("queueStatus").textContent =
-        data.message || "Searching...";
+socket.on("queue_joined",data=>{
+    document.getElementById("queueStatus").textContent=data.message||"Searching...";
 });
-
-socket.on("match_error", data => {
-    queueSearching = false;
-
-    document.getElementById("queueStatus").textContent =
-        data.error || "Could not find a match.";
-
-    document.getElementById("privateStatus").textContent =
-        data.error || "Could not join the lobby.";
+socket.on("match_error",data=>{
+    queueSearching=false;
+    document.getElementById("queueStatus").textContent=data.error||"Could not find a match.";
+    document.getElementById("privateStatus").textContent=data.error||"Could not join the lobby.";
 });
-
-socket.on("private_lobby_created", data => {
-    privateRoomCode = data.room || data.code;
-
-    document.getElementById("privateStatus").textContent =
-        "Your room code is: " + privateRoomCode;
+socket.on("private_lobby_created",data=>{
+    privateRoomCode=data.room||data.code;
+    document.getElementById("privateStatus").textContent="Your room code is: "+privateRoomCode;
 });
-
-socket.on("match_found", data => {
-    queueSearching = false;
-    gameMode = "online";
-    myColor = data.color;
-    currentGame = data.room;
-    gameOver = false;
-    selectedSquare = null;
-    legalSquares = [];
-    lastMove = null;
-    gameMoves = [];
-    board = initialBoard();
-    currentTurn = "white";
-
-    whiteTime = Number(data.seconds);
-    blackTime = Number(data.seconds);
-
-    document.getElementById("gameTitle").textContent =
-        data.rated ? "Rated Online Game" : "Private Game";
-
-    document.getElementById("gameOpponent").textContent =
-        "Playing against " + (data.opponent || "Opponent");
-
-    document.getElementById("queueStatus").textContent = "";
+socket.on("match_found",data=>{
+    queueSearching=false;gameMode="online";myColor=data.color;currentGame=data.room;
+    gameOver=false;selectedSquare=null;legalSquares=[];lastMove=null;gameMoves=[];
+    board=initialBoard();currentTurn="white";
+    whiteTime=Number(data.seconds);blackTime=Number(data.seconds);
+    document.getElementById("gameTitle").textContent=data.rated?"Rated Online Game":"Private Game";
+    document.getElementById("gameOpponent").textContent="Playing against "+(data.opponent||"Opponent");
+    document.getElementById("queueStatus").textContent="";
     document.getElementById("cancelQueueButton").classList.add("hidden");
-
-    showScreen("gameScreen");
-    renderBoard();
-    startClock();
-
-    socket.emit("request_game_state", {
-        room: currentGame
-    });
+    showScreen("gameScreen");renderBoard();startClock();
+    socket.emit("request_game_state",{room:currentGame});
 });
-
-socket.on("game_started", data => {
-    if (data.board) board = data.board;
-    if (data.turn) currentTurn = data.turn;
-
-    whiteTime = data.white_time ?? whiteTime;
-    blackTime = data.black_time ?? blackTime;
-
-    gameMoves = data.moves || [];
-
-    renderBoard();
-    updateClocks();
+socket.on("game_started",data=>{
+    if(data.board)board=data.board;
+    if(data.turn)currentTurn=data.turn;
+    whiteTime=data.white_time??whiteTime;blackTime=data.black_time??blackTime;
+    gameMoves=data.moves||[];renderBoard();updateClocks();
 });
-
-socket.on("move_made", data => {
-    board = data.board;
-    currentTurn = data.turn;
-
-    whiteTime = data.white_time;
-    blackTime = data.black_time;
-
-    if (data.moves) gameMoves = data.moves;
-
-    if (data.move) {
-        const from = parseSquare(data.move.from);
-        const to = parseSquare(data.move.to);
-
-        if (from && to) {
-            lastMove = { from, to };
-        }
+socket.on("move_made",data=>{
+    board=data.board;currentTurn=data.turn;
+    whiteTime=data.white_time;blackTime=data.black_time;
+    if(data.moves)gameMoves=data.moves;
+    if(data.move){
+        const from=parseSquare(data.move.from),to=parseSquare(data.move.to);
+        if(from&&to)lastMove={from,to};
     }
-
-    selectedSquare = null;
-    legalSquares = [];
-
-    renderBoard();
-    updateClocks();
-
-    document.getElementById("gameStatus").textContent =
-        currentTurn === myColor ? "Your turn" : "Opponent's turn";
+    selectedSquare=null;legalSquares=[];
+    renderBoard();updateClocks();
+    document.getElementById("gameStatus").textContent=currentTurn===myColor?"Your turn":"Opponent's turn";
 });
-
-socket.on("move_error", data => {
-    document.getElementById("gameStatus").textContent =
-        data.error || "Move rejected.";
+socket.on("move_error",data=>{
+    document.getElementById("gameStatus").textContent=data.error||"Move rejected.";
 });
-
-socket.on("match_result", data => {
-    gameOver = true;
-    stopClock();
-
-    const won = data.winner === myColor;
-
-    document.getElementById("gameStatus").textContent =
-        (won ? "You won!" : "You lost!") +
-        " — " + (data.reason || "Game finished");
-
-    if (data.ratings) {
-        const rating = data.ratings[myColor];
-        if (rating && currentUser) {
-            currentUser.rating = rating;
-            updateAccountUI();
-        }
+socket.on("match_result",data=>{
+    gameOver=true;stopClock();
+    const won=data.winner===myColor;
+    document.getElementById("gameStatus").textContent=(won?"You won!":"You lost!")+" — "+(data.reason||"Game finished");
+    if(data.ratings){
+        const rating=data.ratings[myColor];
+        if(rating&&currentUser){currentUser.rating=rating;updateAccountUI()}
     }
 });
+socket.on("chat_message",data=>addChatMessage(data.username,data.message));
+socket.on("chat_error",data=>addChatMessage("System",data.error));
 
-socket.on("chat_message", data => {
-    addChatMessage(data.username, data.message);
-});
-
-socket.on("chat_error", data => {
-    addChatMessage("System", data.error);
-});
-
-// ============================================================
 // SQUARE PARSING
-// ============================================================
-
-function parseSquare(square) {
-    if (!square || square.length !== 2) return null;
-
-    const c = FILES.indexOf(square[0]);
-    const r = 8 - Number(square[1]);
-
-    if (!inBounds(r, c)) return null;
-
-    return [r, c];
+function parseSquare(square){
+    if(!square||square.length!==2)return null;
+    const c=FILES.indexOf(square[0]),r=8-Number(square[1]);
+    if(!inBounds(r,c))return null;
+    return [r,c];
 }
 
-// ============================================================
 // GAME CONTROLS
-// ============================================================
-
-function resignGame() {
-    if (gameMode === "online") {
-        socket.emit("resign");
-    } else {
-        endLocalGame(
-            myColor === "white" ? "black" : "white",
-            "resignation"
-        );
-    }
+function resignGame(){
+    if(gameMode==="online")socket.emit("resign");
+    else endLocalGame(myColor==="white"?"black":"white","resignation");
+}
+function restartGame(){
+    if(gameMode==="online"){alert("Online games cannot be restarted. Start a new game instead.");return}
+    if(gameMode==="bot")startBotGame();
 }
 
-function restartGame() {
-    if (gameMode === "online") {
-        alert("Online games cannot be restarted. Start a new game instead.");
-        return;
-    }
-
-    if (gameMode === "bot") {
-        startBotGame();
-    }
-}
-
-// ============================================================
 // CHAT
-// ============================================================
-
-function addChatMessage(username, message) {
-    const container = document.getElementById("chatMessages");
-
-    const line = document.createElement("div");
-    line.className = "chat-line";
-
-    const name = document.createElement("strong");
-    name.textContent = username + ": ";
-
-    const content = document.createElement("span");
-    content.textContent = message;
-
-    line.append(name, content);
-    container.appendChild(line);
-
-    container.scrollTop = container.scrollHeight;
+function addChatMessage(username,message){
+    const container=document.getElementById("chatMessages");
+    const line=document.createElement("div");line.className="chat-line";
+    const name=document.createElement("strong");name.textContent=username+": ";
+    const content=document.createElement("span");content.textContent=message;
+    line.append(name,content);container.appendChild(line);
+    container.scrollTop=container.scrollHeight;
+}
+function sendChat(){
+    const input=document.getElementById("chatInput"),message=input.value.trim();
+    if(!message)return;
+    if(gameMode!=="online"){addChatMessage("You",message);input.value="";return}
+    socket.emit("send_chat",{message});input.value="";
 }
 
-function sendChat() {
-    const input = document.getElementById("chatInput");
-    const message = input.value.trim();
-
-    if (!message) return;
-
-    if (gameMode !== "online") {
-        addChatMessage("You", message);
-        input.value = "";
-        return;
-    }
-
-    socket.emit("send_chat", { message });
-    input.value = "";
-}
-
-// ============================================================
 // TOURNAMENT
-// ============================================================
-
-let tournamentData = null;
-
-async function loadTournament() {
-    const status = document.getElementById("tournamentStatus");
-    const bracket = document.getElementById("tournamentBracket");
-
-    status.textContent = "Loading tournament...";
-    bracket.innerHTML = "";
-
-    try {
-        const data = await api("/api/tournament");
-        tournamentData = data;
-
-        const tournament = data.tournament;
-        const joined = data.joined || 0;
-
-        status.innerHTML = `
+let tournamentData=null;
+async function loadTournament(){
+    const status=document.getElementById("tournamentStatus"),bracket=document.getElementById("tournamentBracket");
+    status.textContent="Loading tournament...";bracket.innerHTML="";
+    try{
+        const data=await api("/api/tournament");tournamentData=data;
+        const tournament=data.tournament,joined=data.joined||0;
+        status.innerHTML=`
             <p><strong>Status:</strong> ${escapeHTML(tournament.status)}</p>
             <p><strong>Players:</strong> ${joined}/32</p>
-            <p>When 32 players join, the tournament starts automatically.</p>
-        `;
-
+            <p>When 32 players join, the tournament starts automatically.</p>`;
         renderTournamentBracket(data);
-
-    } catch (error) {
-        status.textContent = error.message;
-    }
+    }catch(error){status.textContent=error.message}
 }
-
-async function joinTournament() {
-    if (!requireLogin()) return;
-
-    try {
-        const data = await api("/api/tournament/join", {
-            method: "POST",
-            body: JSON.stringify({})
-        });
-
-        showMessage(
-            "tournamentStatus",
-            data.started
-                ? "32 players joined! The tournament has started."
-                : "You joined the tournament."
-        );
-
+async function joinTournament(){
+    if(!requireLogin())return;
+    try{
+        const data=await api("/api/tournament/join",{method:"POST",body:JSON.stringify({})});
+        showMessage("tournamentStatus",data.started?"32 players joined! The tournament has started.":"You joined the tournament.");
         await loadTournament();
-
-    } catch (error) {
-        showMessage("tournamentStatus", error.message, true);
-    }
+    }catch(error){showMessage("tournamentStatus",error.message,true)}
 }
-
-function renderTournamentBracket(data) {
-    const container = document.getElementById("tournamentBracket");
-    container.innerHTML = "";
-
-    const rounds = [
-        "Round 1",
-        "Round 2",
-        "Quarterfinals",
-        "Semifinals",
-        "Final"
-    ];
-
-    rounds.forEach((roundName, index) => {
-        const column = document.createElement("div");
-        column.className = "round-column";
-
-        const heading = document.createElement("h3");
-        heading.textContent = roundName;
-        column.appendChild(heading);
-
-        const matches = (data.matches || []).filter(
-            match => Number(match.round_number) === index + 1
-        );
-
-        if (!matches.length) {
-            const waiting = document.createElement("p");
-            waiting.textContent = "Waiting...";
-            column.appendChild(waiting);
-        }
-
-        matches.forEach(match => {
-            const card = document.createElement("div");
-            card.className = "match-card";
-
-            const names = data.player_names || {};
-
-            const first = names[match.player1_id] || "Player";
-            const second = names[match.player2_id] || "Player";
-
-            const winner = names[match.winner_id];
-
-            card.innerHTML = `
-                <div>${escapeHTML(first)}</div>
-                <div>vs</div>
-                <div>${escapeHTML(second)}</div>
-                <hr>
-                <div>${escapeHTML(match.status)}</div>
-                ${winner ? `<strong>Winner: ${escapeHTML(winner)}</strong>` : ""}
-            `;
-
-            if (
-                currentUser &&
-                match.status === "ready" &&
-                [match.player1_id, match.player2_id].includes(currentUser.id)
-            ) {
-                const button = document.createElement("button");
-                button.className = "primary";
-                button.textContent = "Open Match";
-                button.onclick = () => {
-                    startTournamentMatch(match.id);
-                };
-                card.appendChild(button);
+function renderTournamentBracket(data){
+    const container=document.getElementById("tournamentBracket");container.innerHTML="";
+    ["Round 1","Round 2","Quarterfinals","Semifinals","Final"].forEach((roundName,index)=>{
+        const column=document.createElement("div");column.className="round-column";
+        const heading=document.createElement("h3");heading.textContent=roundName;column.appendChild(heading);
+        const matches=(data.matches||[]).filter(match=>Number(match.round_number)===index+1);
+        if(!matches.length){const waiting=document.createElement("p");waiting.textContent="Waiting...";column.appendChild(waiting)}
+        matches.forEach(match=>{
+            const card=document.createElement("div");card.className="match-card";
+            const names=data.player_names||{};
+            const first=names[match.player1_id]||"Player",second=names[match.player2_id]||"Player",winner=names[match.winner_id];
+            card.innerHTML=`
+                <div>${escapeHTML(first)}</div><div>vs</div><div>${escapeHTML(second)}</div>
+                <hr><div>${escapeHTML(match.status)}</div>
+                ${winner?`<strong>Winner: ${escapeHTML(winner)}</strong>`:""}`;
+            if(currentUser&&match.status==="ready"&&[match.player1_id,match.player2_id].includes(currentUser.id)){
+                const button=document.createElement("button");button.className="primary";button.textContent="Open Match";
+                button.onclick=()=>startTournamentMatch(match.id);card.appendChild(button);
             }
-
             column.appendChild(card);
         });
-
         container.appendChild(column);
     });
 }
-
-async function startTournamentMatch(matchId) {
-    try {
-        const data = await api(
-            "/api/tournament/match/" + encodeURIComponent(matchId) + "/start",
-            {
-                method: "POST",
-                body: JSON.stringify({})
-            }
-        );
-
-        alert(data.message || "Tournament match information loaded.");
-    } catch (error) {
-        alert(error.message);
-    }
+async function startTournamentMatch(matchId){
+    try{
+        const data=await api("/api/tournament/match/"+encodeURIComponent(matchId)+"/start",{method:"POST",body:JSON.stringify({})});
+        alert(data.message||"Tournament match information loaded.");
+    }catch(error){alert(error.message)}
 }
 
-// ============================================================
 // PROFILE AND STATISTICS
-// ============================================================
+async function loadMyProfile(){
+    if(!requireLogin())return;
+    const details=document.getElementById("profileDetails"),stats=document.getElementById("profileStats");
+    details.textContent="Loading profile...";stats.innerHTML="";
+    try{
+        const data=await api("/api/profile/"+encodeURIComponent(currentUser.username));
+        const player=data.player||currentUser,statistics=data.stats||{};
+        details.innerHTML=`<h3>${escapeHTML(player.username)}</h3><p>Rating: ${player.rating}</p>`;
 
-async function loadMyProfile() {
-    if (!requireLogin()) return;
+        const normalMoves=Number(statistics.normal_moves||0);
+        const mouseslips=Number(statistics.mouseslips||0);
+        const totalMoves=Number(statistics.total_moves??(normalMoves+mouseslips));
+        const wins=Number(statistics.wins||0);
+        const games=Number(statistics.games_played||0);
+        const winRate=games?((wins/games)*100).toFixed(1)+"%":"0%";
 
-    const details = document.getElementById("profileDetails");
-    const stats = document.getElementById("profileStats");
+        const profileStats=[
+            ["Games played",games],
+            ["Wins",wins],
+            ["Losses",statistics.losses||0],
+            ["Win rate",winRate],
+            ["Current win streak",statistics.current_win_streak||0],
+            ["Longest win streak",statistics.longest_win_streak||0],
+            ["Total moves",totalMoves],
+            ["Normal moves",normalMoves],
+            ["Normal captures",statistics.normal_captures||0],
+            ["Mouseslips",mouseslips],
+            ["Slipped captures",statistics.slipped_captures||0],
+            ["Wins with a mouseslip",statistics.wins_with_mouseslip||0],
+            ["Losses in games with a mouseslip",statistics.losses_in_games_with_mouseslip||0],
+            ["Most mouseslips in one game",statistics.max_mouseslips_in_game||0],
+            ["Games with a mouseslip",statistics.games_with_mouseslip||0]
+        ];
 
-    details.textContent = "Loading profile...";
-    stats.innerHTML = "";
+        stats.innerHTML=profileStats.map(([label,value])=>`
+            <div class="stat-card">${escapeHTML(label)}<strong>${escapeHTML(value)}</strong></div>
+        `).join("");
 
-    try {
-        const data = await api("/api/profile/" + encodeURIComponent(currentUser.username));
+        const achievements=data.achievements||[];
+        document.getElementById("profileAchievements").innerHTML=achievements.map(item=>`
+            <div class="badge-card"><div class="badge-icon">🏅</div>
+            <strong>${escapeHTML(item.name||item.achievement_name||"Achievement")}</strong></div>
+        `).join("")||"<p>No achievements yet.</p>";
 
-        const player = data.player || currentUser;
-        const statistics = data.stats || {};
+        const history=data.history||[];
+        document.getElementById("profileHistory").innerHTML=history.map(match=>`
+            <div class="match-card">
+                <strong>${escapeHTML(match.reason||"Completed game")}</strong>
+                <p>${escapeHTML(match.winner_side||"Unknown")} won</p>
+                <small>${escapeHTML(match.created_at||"")}</small>
+            </div>
+        `).join("")||"<p>No completed games yet.</p>";
 
-        details.innerHTML = `
-            <h3>${escapeHTML(player.username)}</h3>
-            <p>Rating: ${player.rating}</p>
-        `;
-
-        stats.innerHTML = `
-            <div class="stat-card">Games played<strong>${statistics.games_played ?? 0}</strong></div>
-            <div class="stat-card">Wins<strong>${statistics.wins ?? 0}</strong></div>
-            <div class="stat-card">Losses<strong>${statistics.losses ?? 0}</strong></div>
-            <div class="stat-card">Current streak<strong>${statistics.current_win_streak ?? 0}</strong></div>
-            <div class="stat-card">Longest streak<strong>${statistics.longest_win_streak ?? 0}</strong></div>
-        `;
-
-        const achievements = data.achievements || [];
-
-        document.getElementById("profileAchievements").innerHTML =
-            achievements.map(item => `
-                <div class="badge-card">
-                    <div class="badge-icon">🏅</div>
-                    <strong>${escapeHTML(item.name || item.achievement_name || "Achievement")}</strong>
-                </div>
-            `).join("") || "<p>No achievements yet.</p>";
-
-        const history = data.history || [];
-
-        document.getElementById("profileHistory").innerHTML =
-            history.map(match => `
-                <div class="match-card">
-                    <strong>${escapeHTML(match.reason || "Completed game")}</strong>
-                    <p>${escapeHTML(match.winner_side || "Unknown")} won</p>
-                    <small>${escapeHTML(match.created_at || "")}</small>
-                </div>
-            `).join("") || "<p>No completed games yet.</p>";
-
-    } catch (error) {
-        details.textContent = error.message;
-    }
+    }catch(error){details.textContent=error.message}
 }
 
-// ============================================================
 // FRIENDS
-// ============================================================
-
-async function loadFriends() {
-    if (!requireLogin()) return;
-
-    const container = document.getElementById("friendsList");
-    container.textContent = "Loading friends...";
-
-    try {
-        const data = await api("/api/friends");
-
-        const friends = data.friends || [];
-        const requests = data.requests || [];
-
-        container.innerHTML = "<h3>Friends</h3>" +
-            (friends.map(friend => `
-                <div class="match-card">
-                    ${escapeHTML(friend.username)}
-                </div>
-            `).join("") || "<p>No friends yet.</p>") +
-            "<h3>Incoming requests</h3>" +
-            (requests.map(request => `
-                <div class="match-card">
-                    ${escapeHTML(request.username)}
-                    <button class="success" onclick="acceptFriend('${escapeHTML(request.id)}')">
-                        Accept
-                    </button>
-                </div>
-            `).join("") || "<p>No incoming requests.</p>");
-
-    } catch (error) {
-        container.textContent = error.message;
-    }
+async function loadFriends(){
+    if(!requireLogin())return;
+    const container=document.getElementById("friendsList");container.textContent="Loading friends...";
+    try{
+        const data=await api("/api/friends"),friends=data.friends||[],requests=data.requests||[];
+        container.innerHTML="<h3>Friends</h3>"+
+            (friends.map(friend=>`<div class="match-card">${escapeHTML(friend.username)}</div>`).join("")||"<p>No friends yet.</p>")+
+            "<h3>Incoming requests</h3>"+
+            (requests.map(request=>`
+                <div class="match-card">${escapeHTML(request.username)}
+                <button class="success" onclick="acceptFriend('${escapeHTML(request.id)}')">Accept</button></div>
+            `).join("")||"<p>No incoming requests.</p>");
+    }catch(error){container.textContent=error.message}
 }
-
-async function sendFriendRequest() {
-    if (!requireLogin()) return;
-
-    const username = document.getElementById("friendUsername").value.trim();
-
-    try {
-        await api("/api/friends/request", {
-            method: "POST",
-            body: JSON.stringify({ username })
-        });
-
-        showMessage("friendMessage", "Friend request sent.");
-    } catch (error) {
-        showMessage("friendMessage", error.message, true);
-    }
+async function sendFriendRequest(){
+    if(!requireLogin())return;
+    const username=document.getElementById("friendUsername").value.trim();
+    try{
+        await api("/api/friends/request",{method:"POST",body:JSON.stringify({username})});
+        showMessage("friendMessage","Friend request sent.");
+    }catch(error){showMessage("friendMessage",error.message,true)}
 }
-
-async function acceptFriend(id) {
-    try {
-        await api("/api/friends/accept", {
-            method: "POST",
-            body: JSON.stringify({ request_id: id })
-        });
-
+async function acceptFriend(id){
+    try{
+        await api("/api/friends/accept",{method:"POST",body:JSON.stringify({request_id:id})});
         loadFriends();
-    } catch (error) {
-        alert(error.message);
-    }
+    }catch(error){alert(error.message)}
 }
 
-// ============================================================
 // HALL OF FAME
-// ============================================================
-
-async function loadHallOfFame() {
-    try {
-        const data = await api("/api/hall-of-fame");
-
-        function makeRows(players) {
-            return (players || []).map((player, index) => `
-                <div class="match-card">
-                    ${index + 1}. ${escapeHTML(player.username)}
-                    — ${player.value}
-                </div>
-            `).join("") || "<p>No records yet.</p>";
+async function loadHallOfFame(){
+    try{
+        const data=await api("/api/hall-of-fame");
+        function makeRows(players){
+            return (players||[]).map((player,index)=>`
+                <div class="match-card">${index+1}. ${escapeHTML(player.username)} — ${player.value}</div>
+            `).join("")||"<p>No records yet.</p>";
         }
-
-        document.getElementById("hallRating").innerHTML =
-            makeRows(data.highest_rated);
-
-        document.getElementById("hallStreaks").innerHTML =
-            makeRows(data.longest_streaks);
-
-        document.getElementById("hallGames").innerHTML =
-            makeRows(data.most_games);
-
-    } catch (error) {
-        document.getElementById("hallRating").textContent = error.message;
-    }
+        document.getElementById("hallRating").innerHTML=makeRows(data.highest_rated);
+        document.getElementById("hallStreaks").innerHTML=makeRows(data.longest_streaks);
+        document.getElementById("hallGames").innerHTML=makeRows(data.most_games);
+    }catch(error){document.getElementById("hallRating").textContent=error.message}
 }
 
-// ============================================================
 // DAILY CHALLENGE
-// ============================================================
-
-async function loadDailyChallenge() {
-    const container = document.getElementById("dailyChallenge");
-
-    try {
-        const data = await api("/api/daily-challenge");
-
-        if (!data.challenge) {
-            container.textContent = "No daily challenge has been published.";
-            return;
-        }
-
-        container.innerHTML = `
-            <h3>${escapeHTML(data.challenge.title || "Daily Challenge")}</h3>
-            <p>${escapeHTML(data.challenge.description || "")}</p>
-        `;
-    } catch (error) {
-        container.textContent = error.message;
-    }
+async function loadDailyChallenge(){
+    const container=document.getElementById("dailyChallenge");
+    try{
+        const data=await api("/api/daily-challenge");
+        if(!data.challenge){container.textContent="No daily challenge has been published.";return}
+        container.innerHTML=`<h3>${escapeHTML(data.challenge.title||"Daily Challenge")}</h3><p>${escapeHTML(data.challenge.description||"")}</p>`;
+    }catch(error){container.textContent=error.message}
+}
+async function completeDailyChallenge(){
+    if(!requireLogin())return;
+    try{
+        await api("/api/daily-challenge/complete",{method:"POST",body:JSON.stringify({})});
+        showMessage("dailyMessage","Challenge completion recorded.");
+    }catch(error){showMessage("dailyMessage",error.message,true)}
 }
 
-async function completeDailyChallenge() {
-    if (!requireLogin()) return;
-
-    try {
-        await api("/api/daily-challenge/complete", {
-            method: "POST",
-            body: JSON.stringify({})
-        });
-
-        showMessage("dailyMessage", "Challenge completion recorded.");
-    } catch (error) {
-        showMessage("dailyMessage", error.message, true);
-    }
-}
-
-// ============================================================
 // CUSTOMISATION
-// ============================================================
-
-async function saveCustomization() {
-    if (!requireLogin()) return;
-
-    customBoardTheme = document.getElementById("boardTheme").value;
-    customPieceTheme = document.getElementById("pieceTheme").value;
-
-    try {
-        await api("/api/customization", {
-            method: "POST",
-            body: JSON.stringify({
-                board_theme: customBoardTheme,
-                piece_theme: customPieceTheme
-            })
-        });
-
-        showMessage(
-            "customizationMessage",
-            "Customisation saved."
-        );
-
-        renderBoard();
-
-    } catch (error) {
-        showMessage("customizationMessage", error.message, true);
-    }
+async function saveCustomization(){
+    if(!requireLogin())return;
+    customBoardTheme=document.getElementById("boardTheme").value;
+    customPieceTheme=document.getElementById("pieceTheme").value;
+    try{
+        await api("/api/customization",{method:"POST",body:JSON.stringify({
+            board_theme:customBoardTheme,piece_theme:customPieceTheme
+        })});
+        showMessage("customizationMessage","Customisation saved.");renderBoard();
+    }catch(error){showMessage("customizationMessage",error.message,true)}
 }
 
-// ============================================================
 // COMMUNITY
-// ============================================================
-
-async function loadComments() {
-    try {
-        const data = await api("/api/comments");
-        const comments = data.comments || [];
-
-        document.getElementById("commentsList").innerHTML =
-            comments.map(comment => `
-                <div class="match-card">
-                    <strong>${escapeHTML(comment.username)}</strong>
-                    <p>${escapeHTML(comment.message || comment.comment)}</p>
-                </div>
-            `).join("") || "<p>No comments yet.</p>";
-
-    } catch (error) {
-        document.getElementById("commentsList").textContent =
-            error.message;
-    }
+async function loadComments(){
+    try{
+        const data=await api("/api/comments"),comments=data.comments||[];
+        document.getElementById("commentsList").innerHTML=comments.map(comment=>`
+            <div class="match-card"><strong>${escapeHTML(comment.username)}</strong>
+            <p>${escapeHTML(comment.message||comment.comment)}</p></div>
+        `).join("")||"<p>No comments yet.</p>";
+    }catch(error){document.getElementById("commentsList").textContent=error.message}
+}
+async function postComment(){
+    if(!requireLogin())return;
+    const message=document.getElementById("commentInput").value.trim();
+    if(!message)return;
+    try{
+        await api("/api/comments",{method:"POST",body:JSON.stringify({message})});
+        document.getElementById("commentInput").value="";
+        showMessage("commentMessage","Comment posted.");loadComments();
+    }catch(error){showMessage("commentMessage",error.message,true)}
 }
 
-async function postComment() {
-    if (!requireLogin()) return;
-
-    const message = document.getElementById("commentInput").value.trim();
-
-    if (!message) return;
-
-    try {
-        await api("/api/comments", {
-            method: "POST",
-            body: JSON.stringify({ message })
-        });
-
-        document.getElementById("commentInput").value = "";
-        showMessage("commentMessage", "Comment posted.");
-        loadComments();
-
-    } catch (error) {
-        showMessage("commentMessage", error.message, true);
-    }
-}
-
-// ============================================================
 // GAME OF THE DAY
-// ============================================================
-
-async function loadGameOfTheDay() {
-    const element = document.getElementById("gameOfDay");
-
-    try {
-        const data = await api("/api/game-of-the-day");
-
-        if (!data.game) {
-            element.textContent = "No featured game yet.";
-            return;
-        }
-
-        const game = data.game;
-
-        element.innerHTML = `
-            <p>Winner: ${escapeHTML(game.winner_side || "Unknown")}</p>
-            <p>Reason: ${escapeHTML(game.reason || "Completed game")}</p>
-        `;
-
-    } catch (_) {
-        element.textContent = "No featured game available.";
-    }
+async function loadGameOfTheDay(){
+    const element=document.getElementById("gameOfDay");
+    try{
+        const data=await api("/api/game-of-the-day");
+        if(!data.game){element.textContent="No featured game yet.";return}
+        const game=data.game;
+        element.innerHTML=`<p>Winner: ${escapeHTML(game.winner_side||"Unknown")}</p><p>Reason: ${escapeHTML(game.reason||"Completed game")}</p>`;
+    }catch(_){element.textContent="No featured game available."}
 }
 
-// ============================================================
 // ADMIN FEEDBACK
-// ============================================================
-
-async function loadAdminFeedback() {
-    if (!currentUser || !currentUser.is_admin) return;
-
-    try {
-        const data = await api("/api/admin/feedback");
-
-        document.getElementById("adminFeedback").innerHTML =
-            (data.feedback || []).map(item => `
-                <div class="match-card">
-                    <strong>${escapeHTML(item.username || "Player")}</strong>
-                    <p>${escapeHTML(item.message || item.feedback || "")}</p>
-                </div>
-            `).join("") || "<p>No feedback.</p>";
-
-    } catch (error) {
-        document.getElementById("adminFeedback").textContent =
-            error.message;
-    }
+async function loadAdminFeedback(){
+    if(!currentUser||!currentUser.is_admin)return;
+    try{
+        const data=await api("/api/admin/feedback");
+        document.getElementById("adminFeedback").innerHTML=(data.feedback||[]).map(item=>`
+            <div class="match-card"><strong>${escapeHTML(item.username||"Player")}</strong>
+            <p>${escapeHTML(item.message||item.feedback||"")}</p></div>
+        `).join("")||"<p>No feedback.</p>";
+    }catch(error){document.getElementById("adminFeedback").textContent=error.message}
 }
 
-// ============================================================
 // INITIAL LOAD
-// ============================================================
-
-async function initialise() {
+async function initialise(){
     await loadAccount();
-
     loadLeaderboard();
     loadGameOfTheDay();
-
-    if (currentUser && currentUser.is_admin) {
-        loadAdminFeedback();
-    }
+    if(currentUser&&currentUser.is_admin)loadAdminFeedback();
 }
-
 initialise();
-
 </script>
-
 </body>
 </html>
-
