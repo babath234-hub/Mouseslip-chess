@@ -419,6 +419,8 @@ function toggleHallSongVolume(){
 function startHallSong(){
     const player=document.getElementById("hallSongPlayer");
     if(!player)return;
+    // Remove any previous player before starting a fresh one.
+    player.replaceChildren();
     const frame=document.createElement("iframe");
     frame.title="The Script - Hall of Fame (Official Video)";
     frame.width="200";frame.height="200";
@@ -426,7 +428,13 @@ function startHallSong(){
     frame.allow="autoplay; encrypted-media; picture-in-picture; web-share";
     frame.allowFullscreen=true;
     frame.src="https://www.youtube.com/embed/mk48xRzuNvA?autoplay=1&start=75&controls=1&enablejsapi=1&playsinline=1"+(hallSongMuted?"&mute=1":"&mute=0");
-    player.replaceChildren(frame);
+    player.appendChild(frame);
+}
+function stopHallSong(){
+    const player=document.getElementById("hallSongPlayer");
+    if(!player)return;
+    // Removing the iframe terminates its playback rather than merely hiding it.
+    player.replaceChildren();
 }
 function openHallOfFame(){
     showScreen("hallScreen");
@@ -441,6 +449,8 @@ let screenHistory=[];
 function showScreen(id){
     const target=document.getElementById(id);
     if(!target)return;
+
+    if(id!=="hallScreen")stopHallSong();
 
     const current=document.querySelector(".screen.active");
 
@@ -476,6 +486,8 @@ function goBack(){
         screenHistory=[];
     }
 
+    const activeScreen=document.querySelector(".screen.active");
+    if(!activeScreen || activeScreen.id!=="hallScreen")stopHallSong();
     updateBackButton();
 }
 
