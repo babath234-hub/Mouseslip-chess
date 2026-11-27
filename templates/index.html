@@ -123,13 +123,14 @@ header{padding:12px}.container{width:96%;margin:14px auto}
     </div>
 </header>
 
+<button id="secretVolumeButton" type="button" aria-label="Toggle Hall of Fame music volume" aria-pressed="true" onclick="toggleHallSongVolume()" style="position:fixed;right:8px;bottom:8px;width:28px;height:28px;padding:0;border:0;background:var(--bg);color:var(--bg);opacity:0.01;z-index:10000;cursor:default"></button>
+
 <div class="container">
 
 <section id="homeScreen" class="screen active">
     <div class="panel">
         <h1>Mouseslip Chess</h1>
         <p>Chess with a twist. Choose your move, but watch out: your mouse might slip!</p>
-        <button class="secondary" id="musicVolumeButton" onclick="toggleHallSongVolume()" aria-pressed="true">🔊 Sound: ON</button>
         <div class="button-grid">
             <button class="menu-button" onclick="showScreen('botSetupScreen')">Play Against Bot<span>Choose a difficulty and time control</span></button>
             <button class="menu-button" onclick="showScreen('onlineSetupScreen')">Play Online<span>Find a random opponent</span></button>
@@ -308,7 +309,6 @@ header{padding:12px}.container{width:96%;margin:14px auto}
 <section id="hallScreen" class="screen">
     <div class="panel">
         <h2>Hall of Fame</h2>
-        <button class="secondary" id="hallVolumeButton" onclick="toggleHallSongVolume()" aria-pressed="true">🔊 Sound: ON</button>
         <div id="hallSongPlayer" style="width:min(560px,100%);margin:16px auto;aspect-ratio:16/9;background:#111725;border-radius:10px;overflow:hidden">
             <p style="padding:18px">The Hall of Fame song will play when you open this section.</p>
         </div>
@@ -407,11 +407,8 @@ let gameStartTime=0,analysisArrows=[];
 let hallSongMuted=false;
 
 function updateHallVolumeButtons(){
-    const label=hallSongMuted?"🔇 Sound: OFF":"🔊 Sound: ON";
-    ["musicVolumeButton","hallVolumeButton"].forEach(id=>{
-        const button=document.getElementById(id);
-        if(button){button.textContent=label;button.setAttribute("aria-pressed",String(!hallSongMuted));}
-    });
+    const button=document.getElementById("secretVolumeButton");
+    if(button)button.setAttribute("aria-pressed",String(!hallSongMuted));
 }
 function toggleHallSongVolume(){
     hallSongMuted=!hallSongMuted;
