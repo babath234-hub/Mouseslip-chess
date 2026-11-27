@@ -3386,28 +3386,70 @@ def start_tournament_match(match_id):
 
 
 # ============================================================
-# DAILY CHALLENGE COMPLETION
+# DAILY CHALLENGE QUEUE
 # ============================================================
+
+def active_daily_challenge():
+    today = datetime.now(RIYADH).date().isoformat()
+    active = (
+        supabase.table("daily_challenge_queue")
+        .select("*")
+        .eq("published_date", today)
+        .eq("status", "published")
+        .limit(1)
+        .execute()
+    )
+    if active.data:
+        return active.data[0]
+
+    pending = (
+        supabase.table("daily_challenge_queue")
+        .select("*")
+        .eq("status", "pending")
+        .order("created_at")
+        .limit(1)
+        .execute()
+    )
+    if not pending.data:
+        return None
+
+    challenge = pending.data[0]
+    published = (
+        supabase.table("daily_challenge_queue")
+        .update({
+            "status": "published",
+            "published_date": today
+        })
+        .eq("id", challenge["id"])
+        .eq("status", "pending")
+        .execute()
+    )
+    if published.data:
+        return published.data[0]
+
+    retry = (
+        supabase.table("daily_challenge_queue")
+        .select("*")
+        .eq("published_date", today)
+        .eq("status", "published")
+        .limit(1)
+        .execute()
+    )
+    return retry.data[0] if retry.data else None
+
 
 @app.route("/api/daily-challenge")
 def daily_challenge():
     try:
         player = current_player()
-        today = datetime.now(RIYADH).date().isoformat()
-        challenge_result = (
-            supabase.table("daily_challenges")
-            .select("*")
-            .eq("challenge_date", today)
-            .limit(1)
-            .execute()
-        )
-        if not challenge_result.data:
-            return jsonify({"challenge": None, "completed": False})
-        challenge = challenge_result.data[0]
+        challenge = active_daily_challenge()
+        if not challenge:
+            return jsonify({"challenge": None, "completed": False, "queue_count": 0})
+
         completed = False
         if player:
             completion = (
-                supabase.table("daily_challenge_completions")
+                supabase.table("daily_challenge_queue_completions")
                 .select("id")
                 .eq("challenge_id", challenge["id"])
                 .eq("player_id", player["id"])
@@ -3415,67 +3457,110 @@ def daily_challenge():
                 .execute()
             )
             completed = bool(completion.data)
+
+        queue_result = (
+            supabase.table("daily_challenge_queue")
+            .select("id", count="exact")
+            .eq("status", "pending")
+            .execute()
+        )
         return jsonify({
             "challenge": challenge,
-            "completed": completed
+            "completed": completed,
+            "queue_count": queue_result.count or 0
         })
     except Exception:
         return database_error("loading daily challenge")
 
 
-@app.route(
-    "/api/daily-challenge/complete",
-    methods=["POST"]
-)
-def complete_daily_challenge():
+@app.route("/api/daily-challenge/submit", methods=["POST"])
+def submit_daily_challenge():
     try:
         player, error = require_player()
-
         if error:
             return error
 
-        today = datetime.now(RIYADH).date().isoformat()
+        data = request.get_json(silent=True) or {}
+        position = data.get("position")
+        goal = str(data.get("goal", "")).title()
+        difficulty = data.get("difficulty")
+        side_to_move = str(data.get("side_to_move", "white")).lower()
+        title = str(data.get("title", "")).strip()[:80]
 
-        challenge_result = (
-            supabase.table("daily_challenges")
-            .select("*")
-            .eq("challenge_date", today)
-            .limit(1)
+        allowed_pieces = set("KQRBNPkqrbnp.")
+        if (
+            not isinstance(position, list)
+            or len(position) != 8
+            or any(not isinstance(row, list) or len(row) != 8 for row in position)
+            or any(piece not in allowed_pieces for row in position for piece in row)
+        ):
+            return jsonify({"error": "The board position is invalid."}), 400
+
+        flat = [piece for row in position for piece in row]
+        if flat.count("K") != 1 or flat.count("k") != 1:
+            return jsonify({"error": "A position must contain exactly one white king and one black king."}), 400
+        if goal not in ("Win", "Draw", "Lose"):
+            return jsonify({"error": "Choose Win, Draw or Lose."}), 400
+        if difficulty not in (1, 2, 3, 4):
+            return jsonify({"error": "Choose a valid bot difficulty."}), 400
+        if side_to_move not in ("white", "black"):
+            return jsonify({"error": "Choose which colour moves first."}), 400
+
+        created = supabase.table("daily_challenge_queue").insert({
+            "created_by": player["id"],
+            "creator_username": player["username"],
+            "title": title or f"{goal} against the {['', 'Easy', 'Normal', 'Hard', 'Expert'][difficulty]} bot",
+            "position": position,
+            "goal": goal,
+            "difficulty": difficulty,
+            "side_to_move": side_to_move,
+            "status": "pending"
+        }).execute()
+
+        if not created.data:
+            raise Exception("Challenge submission did not return a row.")
+
+        queue_result = (
+            supabase.table("daily_challenge_queue")
+            .select("id", count="exact")
+            .eq("status", "pending")
             .execute()
         )
+        return jsonify({
+            "success": True,
+            "queue_count": queue_result.count or 0
+        })
+    except Exception:
+        return database_error("submitting daily challenge")
 
-        if not challenge_result.data:
-            return jsonify({
-                "error": "No daily challenge today."
-            }), 404
 
-        challenge = challenge_result.data[0]
+@app.route("/api/daily-challenge/complete", methods=["POST"])
+def complete_daily_challenge():
+    try:
+        player, error = require_player()
+        if error:
+            return error
+
+        challenge = active_daily_challenge()
+        if not challenge:
+            return jsonify({"error": "No daily challenge today."}), 404
 
         existing = (
-            supabase.table("daily_challenge_completions")
-            .select("*")
+            supabase.table("daily_challenge_queue_completions")
+            .select("id")
             .eq("challenge_id", challenge["id"])
             .eq("player_id", player["id"])
             .limit(1)
             .execute()
         )
-
         if existing.data:
-            return jsonify({
-                "error": "You have already completed this challenge."
-            }), 409
+            return jsonify({"success": True, "already_completed": True})
 
-        supabase.table(
-            "daily_challenge_completions"
-        ).insert({
+        supabase.table("daily_challenge_queue_completions").insert({
             "challenge_id": challenge["id"],
             "player_id": player["id"]
         }).execute()
-
-        return jsonify({
-            "success": True
-        })
-
+        return jsonify({"success": True})
     except Exception:
         return database_error("completing daily challenge")
 
