@@ -396,6 +396,18 @@ def firebase_messaging_service_worker():
     )
 
 
+@app.route("/robots.txt")
+def robots_txt():
+    rules = """User-agent: *
+Allow: /
+Disallow: /api/
+Disallow: /health
+
+Sitemap: https://mouseslip-chess-1.onrender.com/sitemap.xml
+"""
+    return app.response_class(rules, mimetype="text/plain")
+
+
 @app.route("/sitemap.xml")
 def sitemap():
     xml = """<?xml version="1.0" encoding="UTF-8"?>
