@@ -2037,7 +2037,7 @@ def find_match(data):
         now = time.time()
 
         opponent_entry = None
-        fallback_entry = None
+        fallback_entries = []
 
         for item in waiting_players:
             waited = now - item["joined"]
@@ -2056,11 +2056,11 @@ def find_match(data):
                 break
 
             # After 30 seconds, stop restricting matchmaking by rating.
-            if waited >= 30 and fallback_entry is None:
-                fallback_entry = item
+            if waited >= 30:
+                fallback_entries.append(item)
 
-        if opponent_entry is None:
-            opponent_entry = fallback_entry
+        if opponent_entry is None and fallback_entries:
+            opponent_entry = random.choice(fallback_entries)
 
         if opponent_entry:
             waiting_players.remove(opponent_entry)
