@@ -780,13 +780,16 @@ function evaluateBoard(){
 function chooseBotMove(){
     const moves=allMovesFor(currentTurn);
     if(!moves.length)return null;
-    if(botDifficulty===1||Math.random()<.25)return moves[Math.floor(Math.random()*moves.length)];
+    const randomness={1:1,2:.30,3:.10,4:.02}[botDifficulty]??.30;
+    if(Math.random()<randomness)return moves[Math.floor(Math.random()*moves.length)];
     let bestMove=null,bestScore=currentTurn==="white"?-Infinity:Infinity;
     for(const move of moves){
-        const oldBoard=copyBoard(board);
+        const oldBoard=copyBoard(board),oldEp=localEnPassant;
+        const oldRights={...localCastlingRights},oldLastMove=lastMove;
         applyLocalMove(move.from,move.to,"q");
         const score=evaluateBoard();
-        board=oldBoard;gameMoves.pop();lastMove=null;
+        board=oldBoard;localEnPassant=oldEp;localCastlingRights=oldRights;
+        gameMoves.pop();lastMove=oldLastMove;
         if((currentTurn==="white"&&score>bestScore)||(currentTurn==="black"&&score<bestScore)){
             bestScore=score;bestMove=move;
         }
@@ -900,7 +903,7 @@ socket.on("match_found",data=>{
     isTournamentGame=!!data.tournament;
     board=initialBoard();currentTurn="white";
     whiteTime=gameUnlimited?0:Number(data.seconds);blackTime=gameUnlimited?0:Number(data.seconds);
-    document.getElementById("gameTitle").textContent=data.rated?"Rated Online Game":"Private Game";
+    document.getElementById("gameTitle").textContent=data.tournament?"Tournament Match":data.rated?"Rated Online Game":"Private Game";
     document.getElementById("gameOpponent").textContent="Playing against "+(data.opponent||"Opponent");
     document.getElementById("queueStatus").textContent="";
     document.getElementById("cancelQueueButton").classList.add("hidden");
@@ -1082,6 +1085,13 @@ async function loadMyProfile(){
     const details=document.getElementById("profileDetails"),stats=document.getElementById("profileStats");
     details.textContent="Loading profile...";stats.innerHTML="";
     try{
+        const customizationData=await api("/api/player/customization");
+        if(customizationData.customization){
+            customBoardTheme=customizationData.customization.board_theme||"classic";
+            customPieceTheme=customizationData.customization.piece_theme||"classic";
+            document.getElementById("boardTheme").value=customBoardTheme;
+            document.getElementById("pieceTheme").value=customPieceTheme;
+        }
         const data=await api("/api/profile/"+encodeURIComponent(currentUser.username));
         const player=data.profile||data.player||currentUser,statistics=data.stats||player.stats||{};
         details.innerHTML=`<h3>${escapeHTML(player.username)}</h3><p>Rating: ${player.rating}</p>`;
