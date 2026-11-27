@@ -1,17 +1,25 @@
 
 import os
+import re
 import time
 import uuid
+import json
+import random
 import secrets
 import string
-import re
 import logging
 import threading
 
+from datetime import datetime, timezone, date
 from flask import Flask, render_template, request, jsonify, session
-from flask_socketio import SocketIO, emit, join_room
+from flask_socketio import SocketIO, emit, join_room, leave_room
 from werkzeug.security import generate_password_hash, check_password_hash
 from supabase import create_client
+
+# ============================================================
+# MOUSESLIP CHESS
+# COMPLETE BACKEND REPLACEMENT — PART 1
+# ============================================================
 
 logging.basicConfig(level=logging.INFO)
 
@@ -21,7 +29,11 @@ app.config["SESSION_COOKIE_HTTPONLY"] = True
 app.config["SESSION_COOKIE_SECURE"] = True
 app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
 
-socketio = SocketIO(app, cors_allowed_origins="*", async_mode="threading")
+socketio = SocketIO(
+    app,
+    cors_allowed_origins="*",
+    async_mode="threading"
+)
 
 supabase = create_client(
     os.environ["SUPABASE_URL"],
@@ -29,25 +41,29 @@ supabase = create_client(
 )
 
 lock = threading.RLock()
+
 rooms = {}
 sid_room = {}
 waiting_players = []
 connected_sids = set()
 
-
-# -------------------- ACCOUNTS --------------------
-
-def get_player_by_username(username):
-    result = (
-        supabase.table("players")
-        .select("*")
-        .eq("username", username)
-        .execute()
-    )
-    return result.data[0] if result.data else None
+tournament_lock = threading.RLock()
 
 
-def get_player_by_id(player_id):
+# ============================================================
+# GENERAL HELPERS
+# ============================================================
+
+def database_error(action):
+    app.logger.exception("Database error: %s", action)
+    return jsonify({
+        "error": "Database error. Check the Render logs."
+    }), 500
+
+
+def current_player():
+    player_id = session.get("player_id")
+
     if not player_id:
         return None
 
@@ -55,17 +71,41 @@ def get_player_by_id(player_id):
         supabase.table("players")
         .select("id, username, rating, is_admin")
         .eq("id", player_id)
+        .limit(1)
         .execute()
     )
+
     return result.data[0] if result.data else None
 
 
-def current_player():
-    return get_player_by_id(session.get("player_id"))
+def require_player():
+    player = current_player()
+
+    if not player:
+        return None, (
+            jsonify({"error": "You must log in first."}),
+            401
+        )
+
+    return player, None
+
+
+def require_admin():
+    player = current_player()
+
+    if not player or not player.get("is_admin"):
+        return None, (
+            jsonify({"error": "Admin access required."}),
+            403
+        )
+
+    return player, None
 
 
 def valid_username(username):
-    return bool(re.fullmatch(r"[A-Za-z0-9_]{3,16}", username))
+    return bool(
+        re.fullmatch(r"[A-Za-z0-9_]{3,16}", username)
+    )
 
 
 def account_response(player):
@@ -77,12 +117,62 @@ def account_response(player):
     }
 
 
-def database_error(action):
-    app.logger.exception("Database error: %s", action)
-    return jsonify({
-        "error": "Database error. Check the Render logs."
-    }), 500
+def get_player_by_username(username):
+    result = (
+        supabase.table("players")
+        .select("*")
+        .eq("username", username)
+        .limit(1)
+        .execute()
+    )
 
+    return result.data[0] if result.data else None
+
+
+def get_player_by_id(player_id):
+    if not player_id:
+        return None
+
+    result = (
+        supabase.table("players")
+        .select("id, username, rating, is_admin")
+        .eq("id", player_id)
+        .limit(1)
+        .execute()
+    )
+
+    return result.data[0] if result.data else None
+
+
+def get_player_stats(player_id):
+    result = (
+        supabase.table("player_stats")
+        .select("*")
+        .eq("player_id", player_id)
+        .limit(1)
+        .execute()
+    )
+
+    if result.data:
+        return result.data[0]
+
+    return {
+        "player_id": player_id,
+        "games_played": 0,
+        "wins": 0,
+        "losses": 0,
+        "current_win_streak": 0,
+        "longest_win_streak": 0
+    }
+
+
+def utc_now():
+    return datetime.now(timezone.utc).isoformat()
+
+
+# ============================================================
+# MAIN WEBSITE
+# ============================================================
 
 @app.route("/")
 def home():
@@ -93,26 +183,40 @@ def home():
 def sitemap():
     xml = """<?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
-    <url>
-        <loc>https://mouseslip-chess-1.onrender.com/</loc>
-        <changefreq>weekly</changefreq>
-        <priority>1.0</priority>
-    </url>
+<url>
+<loc>https://mouseslip-chess-1.onrender.com/</loc>
+<changefreq>weekly</changefreq>
+<priority>1.0</priority>
+</url>
 </urlset>"""
 
-    return app.response_class(xml, mimetype="application/xml")
+    return app.response_class(
+        xml,
+        mimetype="application/xml"
+    )
 
+
+# ============================================================
+# ACCOUNTS
+# ============================================================
 
 @app.route("/api/register", methods=["POST"])
 def register():
     try:
         data = request.get_json(silent=True) or {}
-        username = str(data.get("username", "")).strip().lower()
+
+        username = str(
+            data.get("username", "")
+        ).strip().lower()
+
         password = str(data.get("password", ""))
 
         if not valid_username(username):
             return jsonify({
-                "error": "Username must be 3–16 characters and use only letters, numbers or underscores."
+                "error": (
+                    "Username must be 3–16 characters "
+                    "and use only letters, numbers or underscores."
+                )
             }), 400
 
         if len(password) < 8 or len(password) > 128:
@@ -133,9 +237,10 @@ def register():
         }).execute()
 
         if not result.data:
-            raise Exception("Player was not created.")
+            raise Exception("Account was not created.")
 
         player = result.data[0]
+
         session.clear()
         session["player_id"] = player["id"]
 
@@ -152,13 +257,18 @@ def register():
 def login():
     try:
         data = request.get_json(silent=True) or {}
-        username = str(data.get("username", "")).strip().lower()
+
+        username = str(
+            data.get("username", "")
+        ).strip().lower()
+
         password = str(data.get("password", ""))
 
         player = get_player_by_username(username)
 
         if not player or not check_password_hash(
-            player["password_hash"], password
+            player["password_hash"],
+            password
         ):
             return jsonify({
                 "error": "Incorrect username or password."
@@ -202,19 +312,23 @@ def me():
 @app.route("/api/change-username", methods=["POST"])
 def change_username():
     try:
-        player = current_player()
+        player, error = require_player()
 
-        if not player:
-            return jsonify({
-                "error": "You must be logged in."
-            }), 401
+        if error:
+            return error
 
         data = request.get_json(silent=True) or {}
-        username = str(data.get("username", "")).strip().lower()
+
+        username = str(
+            data.get("username", "")
+        ).strip().lower()
 
         if not valid_username(username):
             return jsonify({
-                "error": "Username must be 3–16 characters and use only letters, numbers or underscores."
+                "error": (
+                    "Username must be 3–16 characters "
+                    "and use only letters, numbers or underscores."
+                )
             }), 400
 
         existing = get_player_by_username(username)
@@ -243,36 +357,178 @@ def change_username():
         return database_error("changing username")
 
 
-# -------------------- PUBLIC LEADERBOARD --------------------
+# ============================================================
+# PLAYER PROFILES
+# ============================================================
 
-@app.route("/api/leaderboard", methods=["GET"])
+@app.route("/api/profile/<username>")
+def player_profile(username):
+    try:
+        username = str(username).strip().lower()
+
+        result = (
+            supabase.table("players")
+            .select("id, username, rating, created_at")
+            .eq("username", username)
+            .limit(1)
+            .execute()
+        )
+
+        if not result.data:
+            return jsonify({
+                "error": "Player not found."
+            }), 404
+
+        player = result.data[0]
+        stats = get_player_stats(player["id"])
+
+        all_players = (
+            supabase.table("players")
+            .select("id, rating")
+            .order("rating", desc=True)
+            .execute()
+        )
+
+        rank = 1
+
+        for item in all_players.data or []:
+            if item["id"] == player["id"]:
+                break
+            rank += 1
+
+        return jsonify({
+            "profile": {
+                "id": player["id"],
+                "username": player["username"],
+                "rating": player["rating"],
+                "rank": rank,
+                "created_at": player.get("created_at"),
+                "stats": stats
+            }
+        })
+
+    except Exception:
+        return database_error("loading player profile")
+
+
+@app.route("/api/player/stats")
+def my_stats():
+    try:
+        player, error = require_player()
+
+        if error:
+            return error
+
+        return jsonify({
+            "username": player["username"],
+            "rating": player["rating"],
+            "stats": get_player_stats(player["id"])
+        })
+
+    except Exception:
+        return database_error("loading player statistics")
+
+
+# ============================================================
+# GLOBAL LEADERBOARD
+# ============================================================
+
+@app.route("/api/leaderboard")
 def leaderboard():
     try:
-        search = str(request.args.get("q", "")).strip()[:16]
+        search = str(
+            request.args.get("q", "")
+        ).strip()[:16]
 
         query = (
             supabase.table("players")
-            .select("username, rating")
+            .select("id, username, rating")
         )
 
         if search:
-            query = query.ilike("username", f"%{search}%")
+            query = query.ilike(
+                "username",
+                f"%{search}%"
+            )
 
         result = (
             query
             .order("rating", desc=True)
-            .order("username", desc=False)
+            .order("username")
             .limit(100)
             .execute()
         )
 
-        return jsonify({"players": result.data or []})
+        players = result.data or []
+
+        for index, player in enumerate(players, start=1):
+            player["rank"] = index
+
+        return jsonify({"players": players})
 
     except Exception:
         return database_error("loading leaderboard")
 
 
-# -------------------- PUBLIC COMMENTS --------------------
+# ============================================================
+# MATCH HISTORY
+# ============================================================
+
+@app.route("/api/player/history")
+def match_history():
+    try:
+        player, error = require_player()
+
+        if error:
+            return error
+
+        result = (
+            supabase.table("match_history")
+            .select("*")
+            .or_(
+                f"white_player.eq.{player['id']},"
+                f"black_player.eq.{player['id']}"
+            )
+            .order("created_at", desc=True)
+            .limit(100)
+            .execute()
+        )
+
+        return jsonify({
+            "games": result.data or []
+        })
+
+    except Exception:
+        return database_error("loading match history")
+
+
+@app.route("/api/match/<match_id>")
+def get_match_details(match_id):
+    try:
+        result = (
+            supabase.table("match_history")
+            .select("*")
+            .eq("match_id", match_id)
+            .limit(1)
+            .execute()
+        )
+
+        if not result.data:
+            return jsonify({
+                "error": "Game not found."
+            }), 404
+
+        return jsonify({
+            "game": result.data[0]
+        })
+
+    except Exception:
+        return database_error("loading game details")
+
+
+# ============================================================
+# PUBLIC COMMUNITY COMMENTS
+# ============================================================
 
 @app.route("/api/comments", methods=["GET", "POST"])
 def comments():
@@ -285,17 +541,21 @@ def comments():
                 .limit(50)
                 .execute()
             )
-            return jsonify({"comments": result.data or []})
 
-        player = current_player()
-
-        if not player:
             return jsonify({
-                "error": "Log in to post a comment."
-            }), 401
+                "comments": result.data or []
+            })
+
+        player, error = require_player()
+
+        if error:
+            return error
 
         data = request.get_json(silent=True) or {}
-        message = str(data.get("message", "")).strip()
+
+        message = str(
+            data.get("message", "")
+        ).strip()
 
         if not message or len(message) > 500:
             return jsonify({
@@ -317,20 +577,23 @@ def comments():
         return database_error("comments")
 
 
-# -------------------- PRIVATE FEEDBACK --------------------
+# ============================================================
+# PRIVATE FEEDBACK AND ADMIN INBOX
+# ============================================================
 
 @app.route("/api/feedback", methods=["POST"])
 def send_feedback():
     try:
-        player = current_player()
+        player, error = require_player()
 
-        if not player:
-            return jsonify({
-                "error": "Log in to send private feedback."
-            }), 401
+        if error:
+            return error
 
         data = request.get_json(silent=True) or {}
-        message = str(data.get("message", "")).strip()
+
+        message = str(
+            data.get("message", "")
+        ).strip()
 
         if not message or len(message) > 2000:
             return jsonify({
@@ -349,15 +612,13 @@ def send_feedback():
         return database_error("sending feedback")
 
 
-@app.route("/api/admin/feedback", methods=["GET"])
+@app.route("/api/admin/feedback")
 def admin_feedback():
     try:
-        player = current_player()
+        player, error = require_admin()
 
-        if not player or not player.get("is_admin"):
-            return jsonify({
-                "error": "Admin access required."
-            }), 403
+        if error:
+            return error
 
         result = (
             supabase.table("feedback")
@@ -367,24 +628,30 @@ def admin_feedback():
             .execute()
         )
 
-        return jsonify({"feedback": result.data or []})
+        return jsonify({
+            "feedback": result.data or []
+        })
 
     except Exception:
         return database_error("loading feedback inbox")
 
 
-@app.route("/api/admin/feedback/<int:feedback_id>/reply", methods=["POST"])
+@app.route(
+    "/api/admin/feedback/<int:feedback_id>/reply",
+    methods=["POST"]
+)
 def reply_feedback(feedback_id):
     try:
-        player = current_player()
+        player, error = require_admin()
 
-        if not player or not player.get("is_admin"):
-            return jsonify({
-                "error": "Admin access required."
-            }), 403
+        if error:
+            return error
 
         data = request.get_json(silent=True) or {}
-        reply = str(data.get("reply", "")).strip()
+
+        reply = str(
+            data.get("reply", "")
+        ).strip()
 
         if not reply or len(reply) > 2000:
             return jsonify({
@@ -395,7 +662,7 @@ def reply_feedback(feedback_id):
             supabase.table("feedback")
             .update({
                 "admin_reply": reply,
-                "replied_at": "now()"
+                "replied_at": utc_now()
             })
             .eq("id", feedback_id)
             .execute()
@@ -403,14 +670,432 @@ def reply_feedback(feedback_id):
 
         return jsonify({
             "success": True,
-            "feedback": result.data
+            "feedback": result.data or []
         })
 
     except Exception:
         return database_error("replying to feedback")
 
 
-# -------------------- CHESS SERVER --------------------
+# ============================================================
+# FRIEND REQUESTS
+# ============================================================
+
+@app.route("/api/friends", methods=["GET", "POST"])
+def friends():
+    try:
+        player, error = require_player()
+
+        if error:
+            return error
+
+        if request.method == "GET":
+            result = (
+                supabase.table("friend_requests")
+                .select("*")
+                .or_(
+                    f"sender_id.eq.{player['id']},"
+                    f"receiver_id.eq.{player['id']}"
+                )
+                .order("created_at", desc=True)
+                .limit(200)
+                .execute()
+            )
+
+            return jsonify({
+                "requests": result.data or []
+            })
+
+        data = request.get_json(silent=True) or {}
+
+        username = str(
+            data.get("username", "")
+        ).strip().lower()
+
+        target = get_player_by_username(username)
+
+        if not target:
+            return jsonify({
+                "error": "Player not found."
+            }), 404
+
+        if target["id"] == player["id"]:
+            return jsonify({
+                "error": "You cannot add yourself."
+            }), 400
+
+        existing = (
+            supabase.table("friend_requests")
+            .select("id")
+            .or_(
+                f"and(sender_id.eq.{player['id']},"
+                f"receiver_id.eq.{target['id']}),"
+                f"and(sender_id.eq.{target['id']},"
+                f"receiver_id.eq.{player['id']})"
+            )
+            .limit(1)
+            .execute()
+        )
+
+        if existing.data:
+            return jsonify({
+                "error": "A request already exists."
+            }), 409
+
+        result = supabase.table("friend_requests").insert({
+            "sender_id": player["id"],
+            "receiver_id": target["id"],
+            "status": "pending"
+        }).execute()
+
+        return jsonify({
+            "success": True,
+            "request": result.data[0] if result.data else None
+        })
+
+    except Exception:
+        return database_error("friend requests")
+
+
+@app.route(
+    "/api/friends/<request_id>/respond",
+    methods=["POST"]
+)
+def respond_friend_request(request_id):
+    try:
+        player, error = require_player()
+
+        if error:
+            return error
+
+        data = request.get_json(silent=True) or {}
+
+        action = str(
+            data.get("action", "")
+        ).lower()
+
+        if action not in ("accept", "decline"):
+            return jsonify({
+                "error": "Choose accept or decline."
+            }), 400
+
+        status = (
+            "accepted" if action == "accept"
+            else "declined"
+        )
+
+        result = (
+            supabase.table("friend_requests")
+            .update({"status": status})
+            .eq("id", request_id)
+            .eq("receiver_id", player["id"])
+            .eq("status", "pending")
+            .execute()
+        )
+
+        if not result.data:
+            return jsonify({
+                "error": "Request not found or already handled."
+            }), 404
+
+        return jsonify({"success": True})
+
+    except Exception:
+        return database_error("responding to friend request")
+
+
+# ============================================================
+# PLAYER CUSTOMISATION
+# ============================================================
+
+@app.route(
+    "/api/player/customization",
+    methods=["GET", "POST"]
+)
+def customization():
+    try:
+        player, error = require_player()
+
+        if error:
+            return error
+
+        if request.method == "GET":
+            result = (
+                supabase.table("player_customizations")
+                .select("*")
+                .eq("player_id", player["id"])
+                .limit(1)
+                .execute()
+            )
+
+            settings = result.data[0] if result.data else {
+                "board_theme": "classic",
+                "piece_theme": "classic"
+            }
+
+            return jsonify({
+                "customization": settings
+            })
+
+        data = request.get_json(silent=True) or {}
+
+        board = str(
+            data.get("board_theme", "classic")
+        )
+
+        pieces = str(
+            data.get("piece_theme", "classic")
+        )
+
+        allowed_boards = {
+            "classic", "blue", "green", "purple", "dark"
+        }
+
+        allowed_pieces = {
+            "classic", "modern", "simple"
+        }
+
+        if board not in allowed_boards:
+            return jsonify({
+                "error": "Invalid board theme."
+            }), 400
+
+        if pieces not in allowed_pieces:
+            return jsonify({
+                "error": "Invalid piece theme."
+            }), 400
+
+        values = {
+            "player_id": player["id"],
+            "board_theme": board,
+            "piece_theme": pieces
+        }
+
+        existing = (
+            supabase.table("player_customizations")
+            .select("player_id")
+            .eq("player_id", player["id"])
+            .limit(1)
+            .execute()
+        )
+
+        if existing.data:
+            result = (
+                supabase.table("player_customizations")
+                .update(values)
+                .eq("player_id", player["id"])
+                .execute()
+            )
+        else:
+            result = (
+                supabase.table("player_customizations")
+                .insert(values)
+                .execute()
+            )
+
+        return jsonify({
+            "success": True,
+            "customization": (
+                result.data[0] if result.data else values
+            )
+        })
+
+    except Exception:
+        return database_error("saving customisation")
+
+
+# ============================================================
+# ACHIEVEMENTS
+# ============================================================
+
+@app.route("/api/player/achievements")
+def player_achievements():
+    try:
+        player, error = require_player()
+
+        if error:
+            return error
+
+        result = (
+            supabase.table("player_achievements")
+            .select("*")
+            .eq("player_id", player["id"])
+            .order("unlocked_at", desc=True)
+            .execute()
+        )
+
+        return jsonify({
+            "achievements": result.data or []
+        })
+
+    except Exception:
+        return database_error("loading achievements")
+
+
+# ============================================================
+# SEASONAL LEADERBOARD
+# ============================================================
+
+@app.route("/api/seasonal-leaderboard")
+def seasonal_leaderboard():
+    try:
+        now = datetime.now(timezone.utc)
+
+        month_start = now.replace(
+            day=1,
+            hour=0,
+            minute=0,
+            second=0,
+            microsecond=0
+        ).isoformat()
+
+        games = (
+            supabase.table("match_history")
+            .select("winner_id")
+            .gte("created_at", month_start)
+            .execute()
+        )
+
+        wins = {}
+
+        for game in games.data or []:
+            winner = game.get("winner_id")
+
+            if winner:
+                wins[winner] = wins.get(winner, 0) + 1
+
+        players_result = (
+            supabase.table("players")
+            .select("id, username, rating")
+            .execute()
+        )
+
+        players = []
+
+        for player in players_result.data or []:
+            count = wins.get(player["id"], 0)
+
+            if count:
+                players.append({
+                    "id": player["id"],
+                    "username": player["username"],
+                    "rating": player["rating"],
+                    "monthly_wins": count
+                })
+
+        players.sort(
+            key=lambda p: (
+                -p["monthly_wins"],
+                -p["rating"],
+                p["username"]
+            )
+        )
+
+        for index, player in enumerate(players, start=1):
+            player["rank"] = index
+
+        return jsonify({
+            "players": players[:100]
+        })
+
+    except Exception:
+        return database_error("loading seasonal leaderboard")
+
+
+# ============================================================
+# HALL OF FAME
+# ============================================================
+
+@app.route("/api/hall-of-fame")
+def hall_of_fame():
+    try:
+        highest = (
+            supabase.table("players")
+            .select("id, username, rating")
+            .order("rating", desc=True)
+            .limit(10)
+            .execute()
+        )
+
+        stats_result = (
+            supabase.table("player_stats")
+            .select("*")
+            .execute()
+        )
+
+        stats = stats_result.data or []
+
+        player_ids = [
+            item["player_id"]
+            for item in stats
+        ]
+
+        names = {}
+
+        if player_ids:
+            player_result = (
+                supabase.table("players")
+                .select("id, username")
+                .in_("id", player_ids)
+                .execute()
+            )
+
+            names = {
+                p["id"]: p["username"]
+                for p in player_result.data or []
+            }
+
+        def leaders(field):
+            ordered = sorted(
+                stats,
+                key=lambda item: int(item.get(field) or 0),
+                reverse=True
+            )
+
+            result = []
+
+            for item in ordered[:10]:
+                player_id = item["player_id"]
+
+                if player_id in names:
+                    result.append({
+                        "username": names[player_id],
+                        "value": item.get(field, 0)
+                    })
+
+            return result
+
+        return jsonify({
+            "highest_rated": highest.data or [],
+            "longest_win_streaks": leaders(
+                "longest_win_streak"
+            ),
+            "most_games_played": leaders(
+                "games_played"
+            )
+        })
+
+    except Exception:
+        return database_error("loading Hall of Fame")
+
+
+# ============================================================
+# PART 2 CONTINUES BELOW THIS LINE
+# ============================================================
+
+# ============================================================
+# MOUSESLIP CHESS
+# COMPLETE BACKEND REPLACEMENT — PART 2
+# Chess engine, online play, tournaments and game results
+# ============================================================
+
+# ============================================================
+# CHESS BOARD HELPERS
+# ============================================================
+
+FILES = "abcdefgh"
+PROMOTIONS = ["q", "r", "b", "n"]
+
 
 def initial_board():
     return [
@@ -425,109 +1110,427 @@ def initial_board():
     ]
 
 
-def color_of(piece):
-    if piece == "." or not piece:
-        return None
-    return "w" if piece.isupper() else "b"
-
-
 def inside(r, c):
     return 0 <= r < 8 and 0 <= c < 8
 
 
-def room_code():
-    alphabet = string.ascii_uppercase + "23456789"
+def piece_color(piece):
+    if piece == ".":
+        return None
+    return "white" if piece.isupper() else "black"
 
-    while True:
+
+def opponent(color):
+    return "black" if color == "white" else "white"
+
+
+def square_name(r, c):
+    return FILES[c] + str(8 - r)
+
+
+def parse_square(square):
+    if not isinstance(square, str) or len(square) != 2:
+        return None
+
+    if square[0] not in FILES or square[1] not in "12345678":
+        return None
+
+    return 8 - int(square[1]), FILES.index(square[0])
+
+
+def copy_board(board):
+    return [row[:] for row in board]
+
+
+def get_piece(board, r, c):
+    if not inside(r, c):
+        return "."
+    return board[r][c]
+
+
+def is_enemy(board, r, c, color):
+    piece = get_piece(board, r, c)
+    return piece != "." and piece_color(piece) != color
+
+
+# ============================================================
+# CHESS MOVE GENERATION
+# ============================================================
+
+KNIGHT_STEPS = [
+    (-2, -1), (-2, 1),
+    (-1, -2), (-1, 2),
+    (1, -2), (1, 2),
+    (2, -1), (2, 1)
+]
+
+KING_STEPS = [
+    (-1, -1), (-1, 0), (-1, 1),
+    (0, -1), (0, 1),
+    (1, -1), (1, 0), (1, 1)
+]
+
+ROOK_DIRS = [
+    (-1, 0), (1, 0), (0, -1), (0, 1)
+]
+
+BISHOP_DIRS = [
+    (-1, -1), (-1, 1), (1, -1), (1, 1)
+]
+
+
+def pseudo_moves(board, r, c, rights=None, en_passant=None):
+    piece = get_piece(board, r, c)
+
+    if piece == ".":
+        return []
+
+    color = piece_color(piece)
+    kind = piece.lower()
+    moves = []
+
+    def add(nr, nc):
+        if not inside(nr, nc):
+            return
+
+        target = board[nr][nc]
+
+        if target == "." or piece_color(target) != color:
+            moves.append((nr, nc))
+
+    if kind == "p":
+        direction = -1 if color == "white" else 1
+        start_row = 6 if color == "white" else 1
+
+        nr = r + direction
+
+        if inside(nr, c) and board[nr][c] == ".":
+            moves.append((nr, c))
+
+            nr2 = r + 2 * direction
+
+            if (
+                r == start_row
+                and inside(nr2, c)
+                and board[nr2][c] == "."
+            ):
+                moves.append((nr2, c))
+
+        for dc in (-1, 1):
+            nr = r + direction
+            nc = c + dc
+
+            if inside(nr, nc):
+                target = board[nr][nc]
+
+                if target != "." and piece_color(target) != color:
+                    moves.append((nr, nc))
+
+                if en_passant == (nr, nc):
+                    moves.append((nr, nc))
+
+    elif kind == "n":
+        for dr, dc in KNIGHT_STEPS:
+            add(r + dr, c + dc)
+
+    elif kind == "k":
+        for dr, dc in KING_STEPS:
+            add(r + dr, c + dc)
+
+        if rights:
+            row = 7 if color == "white" else 0
+            enemy = opponent(color)
+
+            if r == row and c == 4:
+                if rights.get(color + "_kingside"):
+                    if (
+                        board[row][5] == "."
+                        and board[row][6] == "."
+                        and board[row][7] in ("R" if color == "white" else "r",)
+                    ):
+                        moves.append((row, 6))
+
+                if rights.get(color + "_queenside"):
+                    if (
+                        board[row][1] == "."
+                        and board[row][2] == "."
+                        and board[row][3] == "."
+                        and board[row][0] in ("R" if color == "white" else "r",)
+                    ):
+                        moves.append((row, 2))
+
+    elif kind in ("r", "b", "q"):
+        directions = []
+
+        if kind in ("r", "q"):
+            directions.extend(ROOK_DIRS)
+
+        if kind in ("b", "q"):
+            directions.extend(BISHOP_DIRS)
+
+        for dr, dc in directions:
+            nr, nc = r + dr, c + dc
+
+            while inside(nr, nc):
+                target = board[nr][nc]
+
+                if target == ".":
+                    moves.append((nr, nc))
+                else:
+                    if piece_color(target) != color:
+                        moves.append((nr, nc))
+                    break
+
+                nr += dr
+                nc += dc
+
+    return moves
+
+
+def update_castling_rights(rights, piece, start, end):
+    rights = dict(rights or {})
+
+    r, c = start
+    nr, nc = end
+    color = piece_color(piece)
+
+    if piece.lower() == "k":
+        rights[color + "_kingside"] = False
+        rights[color + "_queenside"] = False
+
+    if piece.lower() == "r":
+        if color == "white":
+            if (r, c) == (7, 0):
+                rights["white_queenside"] = False
+            if (r, c) == (7, 7):
+                rights["white_kingside"] = False
+        else:
+            if (r, c) == (0, 0):
+                rights["black_queenside"] = False
+            if (r, c) == (0, 7):
+                rights["black_kingside"] = False
+
+    captured = None
+
+    if inside(nr, nc):
+        captured = piece if False else None
+
+    if (nr, nc) == (7, 0):
+        rights["white_queenside"] = False
+    if (nr, nc) == (7, 7):
+        rights["white_kingside"] = False
+    if (nr, nc) == (0, 0):
+        rights["black_queenside"] = False
+    if (nr, nc) == (0, 7):
+        rights["black_kingside"] = False
+
+    return rights
+
+
+def apply_move(board, start, end, promotion="q", en_passant=None):
+    board = copy_board(board)
+
+    r, c = start
+    nr, nc = end
+
+    piece = board[r][c]
+    target = board[nr][nc]
+
+    if piece == ".":
+        raise ValueError("No piece on starting square.")
+
+    color = piece_color(piece)
+    kind = piece.lower()
+
+    board[r][c] = "."
+
+    if (
+        kind == "p"
+        and en_passant == (nr, nc)
+        and c != nc
+        and target == "."
+    ):
+        board[r][nc] = "."
+
+    if kind == "k" and abs(nc - c) == 2:
+        if nc == 6:
+            board[r][5] = board[r][7]
+            board[r][7] = "."
+        else:
+            board[r][3] = board[r][0]
+            board[r][0] = "."
+
+    if kind == "p" and nr in (0, 7):
+        promotion = str(promotion).lower()
+
+        if promotion not in PROMOTIONS:
+            promotion = "q"
+
+        piece = promotion.upper() if color == "white" else promotion
+
+    board[nr][nc] = piece
+
+    new_ep = None
+
+    if kind == "p" and abs(nr - r) == 2:
+        new_ep = ((r + nr) // 2, c)
+
+    return board, new_ep, target
+
+
+def legal_destinations(board, r, c, rights=None, en_passant=None):
+    return pseudo_moves(
+        board,
+        r,
+        c,
+        rights,
+        en_passant
+    )
+
+
+def make_move(room, start, end, promotion="q"):
+    board = room["board"]
+
+    r, c = start
+    nr, nc = end
+
+    piece = board[r][c]
+
+    if piece == ".":
+        raise ValueError("Empty starting square.")
+
+    color = piece_color(piece)
+
+    destinations = pseudo_moves(
+        board,
+        r,
+        c,
+        room["rights"],
+        room.get("en_passant")
+    )
+
+    if end not in destinations:
+        raise ValueError("Illegal destination.")
+
+    old_board = copy_board(board)
+    captured = board[nr][nc]
+
+    new_board, new_ep, captured = apply_move(
+        board,
+        start,
+        end,
+        promotion,
+        room.get("en_passant")
+    )
+
+    room["rights"] = update_castling_rights(
+        room["rights"],
+        piece,
+        start,
+        end
+    )
+
+    room["board"] = new_board
+    room["en_passant"] = new_ep
+    room["turn"] = opponent(color)
+
+    move = {
+        "from": square_name(r, c),
+        "to": square_name(nr, nc),
+        "piece": piece,
+        "captured": captured,
+        "promotion": promotion if piece.lower() == "p" and nr in (0, 7) else None,
+        "fen_board": new_board
+    }
+
+    room["moves"].append(move)
+
+    return move
+
+
+# ============================================================
+# GAME ROOMS
+# ============================================================
+
+def new_room(
+    white,
+    black,
+    seconds,
+    increment,
+    rated,
+    white_id=None,
+    black_id=None,
+    tournament_id=None,
+    tournament_match_id=None
+):
+    code = "".join(
+        secrets.choice(string.ascii_uppercase + string.digits)
+        for _ in range(6)
+    )
+
+    while code in rooms:
         code = "".join(
-            secrets.choice(alphabet) for _ in range(6)
+            secrets.choice(string.ascii_uppercase + string.digits)
+            for _ in range(6)
         )
-        if code not in rooms:
-            return code
 
+    now = time.time()
 
-def new_room(white, black, seconds, increment, rated,
-             white_id=None, black_id=None):
-    code = room_code()
-
-    rooms[code] = {
+    room = {
+        "code": code,
         "match_id": str(uuid.uuid4()),
-        "moves": [],
         "white": white,
         "black": black,
         "white_id": white_id,
         "black_id": black_id,
-        "rated": bool(rated),
         "board": initial_board(),
         "rights": {
-            "wK": True,
-            "wQ": True,
-            "bK": True,
-            "bQ": True
+            "white_kingside": True,
+            "white_queenside": True,
+            "black_kingside": True,
+            "black_queenside": True
         },
-        "clocks": {
-            "w": int(seconds),
-            "b": int(seconds)
-        },
-        "increment": int(increment),
-        "active": "w",
+        "en_passant": None,
+        "turn": "white",
+        "moves": [],
+        "seconds": max(1, int(seconds)),
+        "increment": max(0, int(increment)),
+        "white_time": max(1, int(seconds)),
+        "black_time": max(1, int(seconds)),
+        "last": now,
+        "started": now,
+        "active": True,
+        "over": False,
+        "rated": bool(rated),
         "unlimited": int(seconds) == 0,
-        "last": time.monotonic(),
-        "started": False,
-        "over": False
+        "tournament_id": tournament_id,
+        "tournament_match_id": tournament_match_id
     }
 
-    sid_room[white] = code
-    sid_room[black] = code
+    rooms[code] = room
 
-    join_room(code, sid=white)
-    join_room(code, sid=black)
+    if white:
+        sid_room[white] = code
 
-    return code
+    if black:
+        sid_room[black] = code
 
-
-def send_match(code):
-    room = rooms[code]
-
-    for side, sid in (
-        ("w", room["white"]),
-        ("b", room["black"])
-    ):
-        emit("match_found", {
-            "room": code,
-            "color": side,
-            "seconds": room["clocks"][side],
-            "increment": room["increment"],
-            "rated": room["rated"]
-        }, to=sid)
-
-
-def get_side(room, sid):
-    if sid == room["white"]:
-        return "w"
-
-    if sid == room["black"]:
-        return "b"
-
-    return None
-
-
-def player_id_for(room, side):
-    return room["white_id"] if side == "w" else room["black_id"]
+    return room
 
 
 def room_snapshot(room):
     return {
+        "room": room["code"],
         "board": room["board"],
-        "rights": room["rights"],
-        "active": room["active"],
-        "clocks": room["clocks"],
+        "turn": room["turn"],
+        "white_time": room["white_time"],
+        "black_time": room["black_time"],
         "increment": room["increment"],
-        "started": room["started"]
+        "rated": room["rated"],
+        "over": room["over"],
+        "moves": room["moves"]
     }
 
-
-# -------------------- MATCH COMPLETION --------------------
 
 def finish_room(code, winner, reason):
     with lock:
@@ -537,863 +1540,1132 @@ def finish_room(code, winner, reason):
             return
 
         room["over"] = True
+        room["active"] = False
+        room["winner"] = winner
+        room["reason"] = reason
 
-        loser = "b" if winner == "w" else "w"
+        match_id = room["match_id"]
 
-        white_id = room["white_id"]
-        black_id = room["black_id"]
+        winner_id = (
+            room["white_id"] if winner == "white"
+            else room["black_id"]
+        )
 
-        rating_updated = False
-
-        # Only completed games with two players are recorded.
-        # A lobby abandoned before the first move is not a game.
-        if room["started"] and room["black"] is not None:
-            try:
-                supabase.rpc("finalize_match", {
-                    "p_match_id": room["match_id"],
-                    "p_white": white_id,
-                    "p_black": black_id,
-                    "p_winner_side": (
-                        "white" if winner == "w" else "black"
-                    ),
+        try:
+            supabase.rpc(
+                "finalize_match",
+                {
+                    "p_match_id": match_id,
+                    "p_white": room["white_id"],
+                    "p_black": room["black_id"],
+                    "p_winner_side": winner,
                     "p_reason": reason,
-                    "p_rated": bool(room["rated"]),
+                    "p_rated": room["rated"],
                     "p_moves": room["moves"]
-                }).execute()
-
-                rating_updated = bool(
-                    room["rated"] and white_id and black_id
-                )
-
-            except Exception:
-                app.logger.exception(
-                    "Could not finalize match %s",
-                    room["match_id"]
-                )
-
-        # Send the latest ratings to both players.
-        for side, sid in (
-            ("w", room["white"]),
-            ("b", room["black"])
-        ):
-            try:
-                player = get_player_by_id(
-                    player_id_for(room, side)
-                )
-                rating = player["rating"] if player else None
-            except Exception:
-                app.logger.exception(
-                    "Could not load rating after match"
-                )
-                rating = None
-
-            socketio.emit("match_result", {
-                "winner": winner,
-                "loser": loser,
-                "reason": reason,
-                "rated": room["rated"],
-                "rating_updated": rating_updated,
-                "rating": rating
-            }, to=sid)
-
-        socketio.emit("clock_stop", {}, to=code)
-
-
-# -------------------- CHESS MOVES --------------------
-
-def pseudo_moves(board, r, c, rights):
-    piece = board[r][c]
-
-    if piece == ".":
-        return []
-
-    color = color_of(piece)
-    kind = piece.lower()
-    moves = []
-
-    def add(rr, cc):
-        if not inside(rr, cc):
-            return False
-
-        target = board[rr][cc]
-
-        if color_of(target) == color:
-            return False
-
-        moves.append((rr, cc))
-        return target == "."
-
-    if kind == "p":
-        direction = -1 if color == "w" else 1
-        start = 6 if color == "w" else 1
-
-        if inside(r + direction, c) and board[r + direction][c] == ".":
-            add(r + direction, c)
-
-            if (
-                r == start and
-                board[r + 2 * direction][c] == "."
-            ):
-                add(r + 2 * direction, c)
-
-        for dc in (-1, 1):
-            rr, cc = r + direction, c + dc
-
-            if (
-                inside(rr, cc) and
-                color_of(board[rr][cc]) not in (None, color)
-            ):
-                moves.append((rr, cc))
-
-    elif kind == "n":
-        for dr, dc in (
-            (-2, -1), (-2, 1),
-            (-1, -2), (-1, 2),
-            (1, -2), (1, 2),
-            (2, -1), (2, 1)
-        ):
-            add(r + dr, c + dc)
-
-    else:
-        if kind == "k":
-            directions = [
-                (-1, -1), (-1, 0), (-1, 1),
-                (0, -1), (0, 1),
-                (1, -1), (1, 0), (1, 1)
-            ]
+                }
+            ).execute()
+
+        except Exception:
+            app.logger.exception(
+                "Could not save completed match."
+            )
+
+        ratings = {}
+
+        for side in ("white", "black"):
+            player_id = room.get(side + "_id")
+
+            if player_id:
+                try:
+                    player = get_player_by_id(player_id)
+                    if player:
+                        ratings[side] = player["rating"]
+                except Exception:
+                    pass
+
+        result = {
+            "winner": winner,
+            "reason": reason,
+            "match_id": match_id,
+            "ratings": ratings
+        }
+
+        socketio.emit(
+            "match_result",
+            result,
+            room=code
+        )
+
+        if room.get("tournament_match_id"):
+            complete_tournament_match(
+                room["tournament_match_id"],
+                winner_id
+            )
+
+
+# ============================================================
+# CLOCKS
+# ============================================================
+
+def clock_worker():
+    while True:
+        socketio.sleep(0.25)
+
+        with lock:
+            now = time.time()
+
+            for code, room in list(rooms.items()):
+                if room["over"] or not room["active"]:
+                    continue
+
+                if room["unlimited"]:
+                    room["last"] = now
+                    continue
+
+                elapsed = now - room["last"]
+                room["last"] = now
+
+                if room["turn"] == "white":
+                    room["white_time"] -= elapsed
+                    if room["white_time"] <= 0:
+                        room["white_time"] = 0
+                        finish_room(
+                            code,
+                            "black",
+                            "time"
+                        )
+                else:
+                    room["black_time"] -= elapsed
+                    if room["black_time"] <= 0:
+                        room["black_time"] = 0
+                        finish_room(
+                            code,
+                            "white",
+                            "time"
+                        )
+
+
+# ============================================================
+# MATCHMAKING
+# ============================================================
+
+@app.route("/api/online/leave", methods=["POST"])
+def leave_queue():
+    player, error = require_player()
+
+    if error:
+        return error
+
+    with lock:
+        waiting_players[:] = [
+            item for item in waiting_players
+            if item.get("player_id") != player["id"]
+        ]
+
+    return jsonify({"success": True})
 
-        elif kind == "b":
-            directions = [
-                (-1, -1), (-1, 1),
-                (1, -1), (1, 1)
-            ]
-
-        elif kind == "r":
-            directions = [
-                (-1, 0), (1, 0),
-                (0, -1), (0, 1)
-            ]
-
-        else:
-            directions = [
-                (-1, -1), (-1, 0), (-1, 1),
-                (0, -1), (0, 1),
-                (1, -1), (1, 0), (1, 1)
-            ]
-
-        for dr, dc in directions:
-            rr, cc = r + dr, c + dc
-
-            while inside(rr, cc):
-                empty = add(rr, cc)
-
-                if kind == "k" or not empty:
-                    break
-
-                rr += dr
-                cc += dc
-
-        if kind == "k":
-            home = 7 if color == "w" else 0
-            rook = "R" if color == "w" else "r"
-
-            if r == home and c == 4:
-                if (
-                    rights[color + "K"] and
-                    board[home][7] == rook and
-                    board[home][5] == "." and
-                    board[home][6] == "."
-                ):
-                    moves.append((home, 6))
-
-                if (
-                    rights[color + "Q"] and
-                    board[home][0] == rook and
-                    board[home][1] == "." and
-                    board[home][2] == "." and
-                    board[home][3] == "."
-                ):
-                    moves.append((home, 2))
-
-    return moves
-
-
-def update_rights(room, fr, fc, tr, tc, moving, captured):
-    rights = room["rights"]
-
-    if moving == "K":
-        rights["wK"] = rights["wQ"] = False
-
-    if moving == "k":
-        rights["bK"] = rights["bQ"] = False
-
-    if moving == "R" and (fr, fc) == (7, 7):
-        rights["wK"] = False
-
-    if moving == "R" and (fr, fc) == (7, 0):
-        rights["wQ"] = False
-
-    if moving == "r" and (fr, fc) == (0, 7):
-        rights["bK"] = False
-
-    if moving == "r" and (fr, fc) == (0, 0):
-        rights["bQ"] = False
-
-    if captured == "R" and (tr, tc) == (7, 7):
-        rights["wK"] = False
-
-    if captured == "R" and (tr, tc) == (7, 0):
-        rights["wQ"] = False
-
-    if captured == "r" and (tr, tc) == (0, 7):
-        rights["bK"] = False
-
-    if captured == "r" and (tr, tc) == (0, 0):
-        rights["bQ"] = False
-
-
-def apply_server_move(room, move):
-    try:
-        fr = int(move["fr"])
-        fc = int(move["fc"])
-        tr = int(move["tr"])
-        tc = int(move["tc"])
-    except (KeyError, TypeError, ValueError):
-        return False, False
-
-    if not all(
-        inside(r, c)
-        for r, c in ((fr, fc), (tr, tc))
-    ):
-        return False, False
-
-    board = room["board"]
-    moving = board[fr][fc]
-    captured = board[tr][tc]
-    side = room["active"]
-
-    if moving == "." or color_of(moving) != side:
-        return False, False
-
-    if (tr, tc) not in pseudo_moves(
-        board, fr, fc, room["rights"]
-    ):
-        return False, False
-
-    promotion = move.get("promotion")
-
-    if moving == "P" and tr == 0:
-        if promotion not in ("Q", "R", "B", "N"):
-            return False, False
-
-    elif moving == "p" and tr == 7:
-        if promotion not in ("q", "r", "b", "n"):
-            return False, False
-
-    else:
-        promotion = None
-
-    update_rights(
-        room, fr, fc, tr, tc, moving, captured
-    )
-
-    board[fr][fc] = "."
-    board[tr][tc] = promotion or moving
-
-    if (
-        moving.lower() == "k" and
-        fr == tr and
-        abs(tc - fc) == 2
-    ):
-        home = fr
-
-        if tc == 6:
-            board[home][5] = board[home][7]
-            board[home][7] = "."
-
-        else:
-            board[home][3] = board[home][0]
-            board[home][0] = "."
-
-    king_captured = captured in ("K", "k")
-
-    return True, king_captured
-
-
-# -------------------- ONLINE PLAYER COUNTER --------------------
-
-def broadcast_online_count():
-    socketio.emit(
-        "online_count",
-        {"count": len(connected_sids)}
-    )
-
-
-@socketio.on("connect")
-def connected():
-    connected_sids.add(request.sid)
-    broadcast_online_count()
-
-
-# -------------------- MATCHMAKING --------------------
 
 @socketio.on("find_match")
-def find_match(data=None):
-    data = data or {}
-    sid = request.sid
+def find_match(data):
     player = current_player()
 
     if not player:
         emit("match_error", {
-            "message": "Log in before searching. Random matches are always rated."
+            "error": "Log in before playing online."
         })
         return
 
-    try:
-        seconds = max(
-            0, min(7200, int(data.get("seconds", 300)))
-        )
-        increment = max(
-            0, min(60, int(data.get("increment", 0)))
-        )
+    data = data or {}
 
-    except (TypeError, ValueError):
-        emit("match_error", {
-            "message": "Invalid time control."
-        })
+    seconds = int(data.get("seconds", 300))
+    increment = int(data.get("increment", 0))
+
+    if seconds < 0 or seconds > 7200:
+        emit("match_error", {"error": "Invalid time control."})
+        return
+
+    if increment < 0 or increment > 60:
+        emit("match_error", {"error": "Invalid increment."})
         return
 
     with lock:
         waiting_players[:] = [
-            p for p in waiting_players
-            if p["sid"] != sid
+            item for item in waiting_players
+            if item["sid"] != request.sid
         ]
 
-        now = time.monotonic()
-        opponent = None
-        best_difference = None
+        rating = int(player["rating"])
+        now = time.time()
 
-        for candidate in waiting_players:
-            if (
-                candidate["seconds"] != seconds or
-                candidate["increment"] != increment
-            ):
-                continue
+        opponent_entry = None
 
-            waited = now - candidate["joined"]
+        for item in waiting_players:
+            waited = now - item["joined"]
             allowed_difference = 200 + int(waited * 25)
 
-            difference = abs(
-                candidate["rating"] - player["rating"]
+            other_player = get_player_by_id(item["player_id"])
+
+            if not other_player:
+                continue
+
+            if (
+                item["seconds"] == seconds
+                and item["increment"] == increment
+                and abs(other_player["rating"] - rating)
+                <= allowed_difference
+            ):
+                opponent_entry = item
+                break
+
+        if opponent_entry:
+            waiting_players.remove(opponent_entry)
+
+            other_sid = opponent_entry["sid"]
+            other_player = get_player_by_id(
+                opponent_entry["player_id"]
             )
 
-            if difference <= allowed_difference:
-                if (
-                    best_difference is None or
-                    difference < best_difference
-                ):
-                    opponent = candidate
-                    best_difference = difference
+            if not other_player:
+                emit("match_error", {
+                    "error": "Opponent account unavailable."
+                })
+                return
 
-        if opponent:
-            waiting_players.remove(opponent)
+            if random.choice([True, False]):
+                white_sid, black_sid = request.sid, other_sid
+                white_id, black_id = player["id"], other_player["id"]
+            else:
+                white_sid, black_sid = other_sid, request.sid
+                white_id, black_id = other_player["id"], player["id"]
 
-            code = new_room(
-                opponent["sid"],
-                sid,
+            room = new_room(
+                white_sid,
+                black_sid,
                 seconds,
                 increment,
                 True,
-                opponent["player_id"],
-                player["id"]
+                white_id,
+                black_id
             )
 
-            send_match(code)
+            join_room(room["code"], sid=white_sid)
+            join_room(room["code"], sid=black_sid)
+
+            socketio.emit(
+                "match_found",
+                {
+                    "room": room["code"],
+                    "color": "white",
+                    "seconds": seconds,
+                    "increment": increment,
+                    "rated": True,
+                    "opponent": other_player["username"]
+                },
+                to=white_sid
+            )
+
+            socketio.emit(
+                "match_found",
+                {
+                    "room": room["code"],
+                    "color": "black",
+                    "seconds": seconds,
+                    "increment": increment,
+                    "rated": True,
+                    "opponent": player["username"]
+                },
+                to=black_sid
+            )
 
         else:
             waiting_players.append({
-                "sid": sid,
+                "sid": request.sid,
                 "player_id": player["id"],
-                "rating": player["rating"],
                 "seconds": seconds,
                 "increment": increment,
                 "joined": now
             })
 
-            emit("searching", {
-                "message": "Looking for an opponent with the same time control. The rating range expands while you wait..."
+            emit("queue_joined", {
+                "message": "Searching for an opponent..."
             })
 
 
-@socketio.on("cancel_match")
-def cancel_match():
-    sid = request.sid
-
-    with lock:
-        waiting_players[:] = [
-            p for p in waiting_players
-            if p["sid"] != sid
-        ]
-
-    emit("match_cancelled")
-
-
-# -------------------- PRIVATE LOBBIES --------------------
+# ============================================================
+# PRIVATE LOBBIES
+# ============================================================
 
 @socketio.on("create_private_lobby")
-def create_private_lobby(data=None):
-    data = data or {}
-    sid = request.sid
+def create_private_lobby(data):
     player = current_player()
 
-    try:
-        seconds = max(
-            0, min(7200, int(data.get("seconds", 300)))
-        )
-        increment = max(
-            0, min(60, int(data.get("increment", 0)))
-        )
-
-    except (TypeError, ValueError):
-        emit("private_lobby_error", {
-            "message": "Invalid time control."
+    if not player:
+        emit("match_error", {
+            "error": "Log in before creating a private game."
         })
         return
+
+    data = data or {}
 
     rated = bool(data.get("rated", False))
+    seconds = int(data.get("seconds", 300))
+    increment = int(data.get("increment", 0))
 
-    if rated and not player:
-        emit("private_lobby_error", {
-            "message": "Log in to create a rated private game."
+    if seconds < 0 or seconds > 7200 or increment < 0 or increment > 60:
+        emit("match_error", {
+            "error": "Invalid time control."
         })
         return
 
-    with lock:
-        code = room_code()
+    room = new_room(
+        request.sid,
+        None,
+        seconds,
+        increment,
+        rated,
+        player["id"],
+        None
+    )
 
-        rooms[code] = {
-            "match_id": str(uuid.uuid4()),
-            "moves": [],
-            "white": sid,
-            "black": None,
-            "white_id": player["id"] if player else None,
-            "black_id": None,
-            "rated": rated,
-            "board": initial_board(),
-            "rights": {
-                "wK": True,
-                "wQ": True,
-                "bK": True,
-                "bQ": True
-            },
-            "clocks": {
-                "w": seconds,
-                "b": seconds
-            },
-            "increment": increment,
-            "active": "w",
-            "unlimited": seconds == 0,
-            "last": time.monotonic(),
-            "started": False,
-            "over": False
-        }
-
-        sid_room[sid] = code
-        join_room(code)
+    join_room(room["code"])
 
     emit("private_lobby_created", {
-        "code": code,
-        "room": code,
-        "rated": rated
+        "room": room["code"],
+        "code": room["code"],
+        "rated": rated,
+        "seconds": seconds,
+        "increment": increment
     })
 
 
 @socketio.on("join_private_lobby")
-def join_private_lobby(data=None):
+def join_private_lobby(data):
+    player = current_player()
+
+    if not player:
+        emit("match_error", {
+            "error": "Log in before joining a private game."
+        })
+        return
+
     data = data or {}
     code = str(data.get("code", "")).strip().upper()
-    player = current_player()
 
     with lock:
         room = rooms.get(code)
 
-        if (
-            not room or
-            room["black"] is not None or
-            room["over"]
-        ):
-            emit("private_lobby_error", {
-                "message": "That code is invalid or the lobby is full."
+        if not room or room["over"]:
+            emit("match_error", {
+                "error": "Lobby not found."
             })
             return
 
-        if room["white"] == request.sid:
-            emit("private_lobby_error", {
-                "message": "You created this lobby. Share the code with your opponent."
+        if room["black"]:
+            emit("match_error", {
+                "error": "This lobby is already full."
             })
             return
 
-        if room["rated"] and not player:
-            emit("private_lobby_error", {
-                "message": "This is a rated game. Log in before joining."
+        if room["white_id"] == player["id"]:
+            emit("match_error", {
+                "error": "You cannot join your own lobby."
             })
             return
 
         room["black"] = request.sid
-        room["black_id"] = player["id"] if player else None
+        room["black_id"] = player["id"]
+        room["last"] = time.time()
 
         sid_room[request.sid] = code
         join_room(code)
 
-        send_match(code)
-
-
-# -------------------- ONLINE MOVES --------------------
-
-@socketio.on("online_move")
-def online_move(data=None):
-    data = data or {}
-    code = data.get("room")
-
-    with lock:
-        room = rooms.get(code)
-
-        if not room or room["over"]:
-            return
-
-        side = get_side(room, request.sid)
-
-        if not side or side != room["active"]:
-            return
-
-        now = time.monotonic()
-
-        if not room["unlimited"] and room["started"]:
-            elapsed = max(0, now - room["last"])
-            room["clocks"][side] -= elapsed
-            room["last"] = now
-
-            if room["clocks"][side] <= 0:
-                room["clocks"][side] = 0
-
-                finish_room(
-                    code,
-                    "b" if side == "w" else "w",
-                    "time"
-                )
-                return
-
-        move = data.get("move")
-
-        if not isinstance(move, dict):
-            socketio.emit(
-                "board_sync",
-                room_snapshot(room),
-                to=request.sid
-            )
-            return
-
-        valid, king_captured = apply_server_move(
-            room, move
-        )
-
-        if not valid:
-            socketio.emit("invalid_move", {
-                "message": "That move was not accepted. Your board has been corrected."
-            }, to=request.sid)
-
-            socketio.emit(
-                "board_sync",
-                room_snapshot(room),
-                to=request.sid
-            )
-            return
-
-        room["started"] = True
-
-        # Record the actual accepted move.
-        room["moves"].append({
-            "fr": int(move["fr"]),
-            "fc": int(move["fc"]),
-            "tr": int(move["tr"]),
-            "tc": int(move["tc"]),
-            "promotion": move.get("promotion")
-        })
-
-        if not room["unlimited"]:
-            room["clocks"][side] += room["increment"]
-
-        room["active"] = "b" if side == "w" else "w"
-        room["last"] = now
+        white_player = get_player_by_id(room["white_id"])
 
         socketio.emit(
-            "opponent_move",
-            move,
-            to=code,
-            include_self=False
+            "match_found",
+            {
+                "room": code,
+                "color": "white",
+                "seconds": room["seconds"],
+                "increment": room["increment"],
+                "rated": room["rated"],
+                "opponent": player["username"]
+            },
+            to=room["white"]
         )
 
-        socketio.emit("clock_update", {
-            "clocks": room["clocks"],
-            "active": room["active"],
-            "increment": room["increment"]
-        }, to=code)
-
-        if king_captured:
-            finish_room(code, side, "king")
-
-
-# -------------------- IN-GAME CHAT --------------------
-
-@socketio.on("request_chat_history")
-def request_chat_history(data=None):
-    code = (data or {}).get("room")
-
-    with lock:
-        room = rooms.get(code)
-
-        if not room or not get_side(room, request.sid):
-            return
-
-    try:
-        result = (
-            supabase.table("game_messages")
-            .select("username, message, created_at")
-            .eq("match_id", code)
-            .order("created_at", desc=False)
-            .limit(100)
-            .execute()
-        )
-
-        emit("chat_history", {
-            "messages": result.data or []
+        emit("match_found", {
+            "room": code,
+            "color": "black",
+            "seconds": room["seconds"],
+            "increment": room["increment"],
+            "rated": room["rated"],
+            "opponent": (
+                white_player["username"]
+                if white_player else "Opponent"
+            )
         })
 
-    except Exception:
-        app.logger.exception("Could not load chat history")
+        socketio.emit(
+            "game_started",
+            room_snapshot(room),
+            room=code
+        )
 
 
-@socketio.on("send_game_message")
-def send_game_message(data=None):
+# ============================================================
+# ONLINE MOVES
+# ============================================================
+
+@socketio.on("online_move")
+def online_move(data):
     data = data or {}
-    code = data.get("room")
-    message = str(data.get("message", "")).strip()
 
-    if not message or len(message) > 300:
+    with lock:
+        code = sid_room.get(request.sid)
+        room = rooms.get(code) if code else None
+
+        if not room or room["over"] or not room["black"]:
+            emit("move_error", {
+                "error": "Game is not active."
+            })
+            return
+
+        color = (
+            "white" if room["white"] == request.sid
+            else "black" if room["black"] == request.sid
+            else None
+        )
+
+        if not color or color != room["turn"]:
+            emit("move_error", {
+                "error": "It is not your turn."
+            })
+            return
+
+        start = parse_square(data.get("from"))
+        end = parse_square(data.get("to"))
+
+        if not start or not end:
+            emit("move_error", {
+                "error": "Invalid square."
+            })
+            return
+
+        piece = room["board"][start[0]][start[1]]
+
+        if piece == "." or piece_color(piece) != color:
+            emit("move_error", {
+                "error": "You cannot move that piece."
+            })
+            return
+
+        promotion = str(
+            data.get("promotion", "q")
+        ).lower()
+
+        if promotion not in PROMOTIONS:
+            promotion = "q"
+
+        try:
+            move = make_move(
+                room,
+                start,
+                end,
+                promotion
+            )
+        except ValueError as exc:
+            emit("move_error", {
+                "error": str(exc)
+            })
+            return
+
+        if not room["unlimited"]:
+            if color == "white":
+                room["white_time"] += room["increment"]
+            else:
+                room["black_time"] += room["increment"]
+
+        room["last"] = time.time()
+
+        if color == "white":
+            room["white_time"] = max(0, room["white_time"])
+        else:
+            room["black_time"] = max(0, room["black_time"])
+
+        if move["captured"] in ("k", "K"):
+            finish_room(
+                code,
+                color,
+                "king captured"
+            )
+            return
+
+        socketio.emit(
+            "move_made",
+            {
+                "board": room["board"],
+                "move": {
+                    "from": move["from"],
+                    "to": move["to"],
+                    "piece": move["piece"],
+                    "captured": move["captured"],
+                    "promotion": move["promotion"]
+                },
+                "turn": room["turn"],
+                "white_time": room["white_time"],
+                "black_time": room["black_time"],
+                "moves": room["moves"]
+            },
+            room=code
+        )
+
+
+# ============================================================
+# RESIGNATION AND LEAVING
+# ============================================================
+
+@socketio.on("resign")
+def resign():
+    code = sid_room.get(request.sid)
+    room = rooms.get(code) if code else None
+
+    if not room or room["over"]:
+        return
+
+    if room["white"] == request.sid:
+        finish_room(code, "black", "resignation")
+    elif room["black"] == request.sid:
+        finish_room(code, "white", "resignation")
+
+
+@socketio.on("leave_game")
+def leave_game():
+    code = sid_room.get(request.sid)
+
+    if not code:
         return
 
     with lock:
         room = rooms.get(code)
-        side = get_side(room, request.sid) if room else None
 
-        if not room or not side or room["black"] is None:
-            return
+        if room and not room["over"] and room["black"]:
+            if room["white"] == request.sid:
+                finish_room(code, "black", "opponent left")
+            elif room["black"] == request.sid:
+                finish_room(code, "white", "opponent left")
 
-        player = get_player_by_id(
-            player_id_for(room, side)
-        )
+        sid_room.pop(request.sid, None)
+        leave_room(code)
 
-        username = player["username"] if player else "Guest"
-
-        try:
-            supabase.table("game_messages").insert({
-                "match_id": code,
-                "player_id": player_id_for(room, side),
-                "username": username,
-                "message": message
-            }).execute()
-
-        except Exception:
-            app.logger.exception("Could not save chat message")
-            return
-
-        socketio.emit("game_message", {
-            "username": username,
-            "message": message,
-            "created_at": time.time()
-        }, to=code)
-
-
-# -------------------- RESIGNATION AND LEAVING --------------------
-
-@socketio.on("online_resign")
-def online_resign(data=None):
-    code = (data or {}).get("room")
-
-    with lock:
-        room = rooms.get(code)
-
-        if not room or room["over"]:
-            return
-
-        side = get_side(room, request.sid)
-
-        if not side:
-            return
-
-        finish_room(
-            code,
-            "b" if side == "w" else "w",
-            "resignation"
-        )
-
-
-@socketio.on("leave_online")
-def leave_online(data=None):
-    sid = request.sid
-
-    with lock:
-        code = sid_room.get(sid)
-
-        if not code:
-            code = (data or {}).get("room")
-
-        room = rooms.get(code)
-
-        if not room:
-            sid_room.pop(sid, None)
-            return
-
-        side = get_side(room, sid)
-
-        if not side:
-            return
-
-        other_sid = (
-            room["black"] if side == "w"
-            else room["white"]
-        )
-
-        if (
-            room["started"] and
-            room["black"] is not None and
-            not room["over"]
-        ):
-            winner = "b" if side == "w" else "w"
-            finish_room(code, winner, "disconnect")
-
-        else:
-            if other_sid:
-                winner = "b" if side == "w" else "w"
-
-                socketio.emit("match_result", {
-                    "winner": winner,
-                    "loser": side,
-                    "reason": "disconnect",
-                    "rated": False,
-                    "rating_updated": False,
-                    "rating": None
-                }, to=other_sid)
-
-            rooms.pop(code, None)
-
-        sid_room.pop(sid, None)
-
-
-# -------------------- DISCONNECT --------------------
 
 @socketio.on("disconnect")
-def disconnect():
-    sid = request.sid
-    connected_sids.discard(sid)
-    broadcast_online_count()
-
+def disconnected():
     with lock:
         waiting_players[:] = [
-            p for p in waiting_players
-            if p["sid"] != sid
+            item for item in waiting_players
+            if item["sid"] != request.sid
         ]
 
-        code = sid_room.pop(sid, None)
+        code = sid_room.get(request.sid)
+        room = rooms.get(code) if code else None
 
-        if not code:
-            return
+        if room and not room["over"] and room["black"]:
+            if room["white"] == request.sid:
+                finish_room(code, "black", "disconnect")
+            elif room["black"] == request.sid:
+                finish_room(code, "white", "disconnect")
 
-        room = rooms.get(code)
+        sid_room.pop(request.sid, None)
+        connected_sids.discard(request.sid)
 
-        if not room or room["over"]:
-            return
 
-        side = get_side(room, sid)
+# ============================================================
+# GAME CHAT
+# ============================================================
 
-        if not side:
-            return
+@socketio.on("send_chat")
+def send_chat(data):
+    player = current_player()
 
-        other_sid = (
-            room["black"] if side == "w"
-            else room["white"]
+    if not player:
+        emit("chat_error", {
+            "error": "Log in to send messages."
+        })
+        return
+
+    data = data or {}
+
+    code = sid_room.get(request.sid)
+    room = rooms.get(code) if code else None
+
+    if not room:
+        return
+
+    message = str(
+        data.get("message", "")
+    ).strip()
+
+    if not message or len(message) > 300:
+        return
+
+    message_data = {
+        "room": code,
+        "player_id": player["id"],
+        "username": player["username"],
+        "message": message,
+        "created_at": utc_now()
+    }
+
+    socketio.emit(
+        "chat_message",
+        message_data,
+        room=code
+    )
+
+    try:
+        supabase.table("game_messages").insert({
+            "match_id": code,
+            "player_id": player["id"],
+            "username": player["username"],
+            "message": message
+        }).execute()
+    except Exception:
+        app.logger.exception("Could not save game chat.")
+
+
+# ============================================================
+# TOURNAMENT HELPERS
+# ============================================================
+
+def current_month_start():
+    today = date.today()
+    return today.replace(day=1).isoformat()
+
+
+def get_or_create_monthly_tournament():
+    month = current_month_start()
+
+    result = (
+        supabase.table("monthly_tournaments")
+        .select("*")
+        .eq("month_start", month)
+        .limit(1)
+        .execute()
+    )
+
+    if result.data:
+        return result.data[0]
+
+    created = (
+        supabase.table("monthly_tournaments")
+        .insert({
+            "month_start": month,
+            "status": "registration"
+        })
+        .execute()
+    )
+
+    return created.data[0] if created.data else None
+
+
+def tournament_entries(tournament_id):
+    result = (
+        supabase.table("tournament_entries")
+        .select("*")
+        .eq("tournament_id", tournament_id)
+        .order("joined_at")
+        .execute()
+    )
+
+    return result.data or []
+
+
+def create_tournament_round(tournament, players, round_number):
+    random.shuffle(players)
+
+    match_rows = []
+
+    for index in range(0, len(players), 2):
+        player1 = players[index]
+        player2 = players[index + 1]
+
+        match_rows.append({
+            "tournament_id": tournament["id"],
+            "round_number": round_number,
+            "match_number": index // 2 + 1,
+            "player1_id": player1,
+            "player2_id": player2,
+            "status": "ready"
+        })
+
+    if match_rows:
+        supabase.table("tournament_matches").insert(
+            match_rows
+        ).execute()
+
+
+def start_tournament(tournament):
+    with tournament_lock:
+        existing = (
+            supabase.table("monthly_tournaments")
+            .select("*")
+            .eq("id", tournament["id"])
+            .limit(1)
+            .execute()
         )
 
-        if room["started"] and room["black"] is not None:
-            winner = "b" if side == "w" else "w"
-            finish_room(code, winner, "disconnect")
+        if not existing.data:
+            return
 
-        else:
-            if other_sid:
-                winner = "b" if side == "w" else "w"
+        tournament = existing.data[0]
 
-                socketio.emit("match_result", {
-                    "winner": winner,
-                    "loser": side,
-                    "reason": "disconnect",
-                    "rated": False,
-                    "rating_updated": False,
-                    "rating": None
-                }, to=other_sid)
+        if tournament["status"] != "registration":
+            return
 
-            rooms.pop(code, None)
+        entries = tournament_entries(tournament["id"])
 
+        if len(entries) != 32:
+            return
 
-# -------------------- CLOCK --------------------
+        player_ids = [
+            item["player_id"]
+            for item in entries
+        ]
 
-def clock_worker():
-    while True:
-        socketio.sleep(0.25)
-        now = time.monotonic()
+        random.shuffle(player_ids)
 
-        with lock:
-            for code, room in list(rooms.items()):
-                if (
-                    room["over"] or
-                    not room["started"] or
-                    room["black"] is None or
-                    room["unlimited"]
-                ):
-                    continue
+        supabase.table("tournament_entries").update({
+            "seed": 1
+        }).eq(
+            "tournament_id", tournament["id"]
+        ).execute()
 
-                elapsed = max(0, now - room["last"])
+        for index, entry in enumerate(entries):
+            supabase.table("tournament_entries").update({
+                "seed": index + 1
+            }).eq("id", entry["id"]).execute()
 
-                remaining = (
-                    room["clocks"][room["active"]] - elapsed
-                )
+        supabase.table("monthly_tournaments").update({
+            "status": "in_progress"
+        }).eq("id", tournament["id"]).execute()
 
-                if remaining <= 0:
-                    room["clocks"][room["active"]] = 0
-                    loser = room["active"]
-
-                    finish_room(
-                        code,
-                        "b" if loser == "w" else "w",
-                        "time"
-                    )
-
-                else:
-                    socketio.emit("clock_tick", {
-                        "active": room["active"],
-                        "remaining": remaining
-                    }, to=code)
+        create_tournament_round(
+            tournament,
+            player_ids,
+            1
+        )
 
 
-socketio.start_background_task(clock_worker)
+# ============================================================
+# TOURNAMENT REGISTRATION
+# ============================================================
+
+@app.route("/api/tournament")
+def tournament_info():
+    try:
+        tournament = get_or_create_monthly_tournament()
+
+        if not tournament:
+            return jsonify({
+                "error": "Could not load tournament."
+            }), 500
+
+        entries = tournament_entries(tournament["id"])
+
+        matches_result = (
+            supabase.table("tournament_matches")
+            .select("*")
+            .eq("tournament_id", tournament["id"])
+            .order("round_number")
+            .order("match_number")
+            .execute()
+        )
+
+        names = {}
+
+        player_ids = set()
+
+        for entry in entries:
+            player_ids.add(entry["player_id"])
+
+        for match in matches_result.data or []:
+            if match.get("player1_id"):
+                player_ids.add(match["player1_id"])
+            if match.get("player2_id"):
+                player_ids.add(match["player2_id"])
+
+        for player_id in player_ids:
+            player = get_player_by_id(player_id)
+            if player:
+                names[player_id] = player["username"]
+
+        return jsonify({
+            "tournament": tournament,
+            "players": [
+                {
+                    "username": names.get(item["player_id"], "Player"),
+                    "seed": item.get("seed"),
+                    "eliminated_round": item.get("eliminated_round")
+                }
+                for item in entries
+            ],
+            "matches": matches_result.data or [],
+            "player_names": names,
+            "maximum_players": 32,
+            "joined": len(entries)
+        })
+
+    except Exception:
+        return database_error("loading tournament")
+
+
+@app.route("/api/tournament/join", methods=["POST"])
+def join_tournament():
+    try:
+        player, error = require_player()
+
+        if error:
+            return error
+
+        tournament = get_or_create_monthly_tournament()
+
+        if not tournament:
+            return jsonify({
+                "error": "Tournament unavailable."
+            }), 500
+
+        if tournament["status"] != "registration":
+            return jsonify({
+                "error": "This tournament has already started."
+            }), 409
+
+        entries = tournament_entries(tournament["id"])
+
+        if any(
+            item["player_id"] == player["id"]
+            for item in entries
+        ):
+            return jsonify({
+                "error": "You have already joined."
+            }), 409
+
+        if len(entries) >= 32:
+            return jsonify({
+                "error": "The tournament is full."
+            }), 409
+
+        supabase.table("tournament_entries").insert({
+            "tournament_id": tournament["id"],
+            "player_id": player["id"]
+        }).execute()
+
+        entries = tournament_entries(tournament["id"])
+
+        if len(entries) == 32:
+            start_tournament(tournament)
+
+        return jsonify({
+            "success": True,
+            "joined": len(entries),
+            "started": len(entries) == 32
+        })
+
+    except Exception:
+        return database_error("joining tournament")
+
+
+# ============================================================
+# TOURNAMENT MATCH COMPLETION
+# ============================================================
+
+def complete_tournament_match(match_id, winner_id):
+    with tournament_lock:
+        result = (
+            supabase.table("tournament_matches")
+            .select("*")
+            .eq("id", match_id)
+            .limit(1)
+            .execute()
+        )
+
+        if not result.data:
+            return
+
+        match = result.data[0]
+
+        if match["status"] == "completed":
+            return
+
+        if winner_id not in (
+            match["player1_id"],
+            match["player2_id"]
+        ):
+            return
+
+        supabase.table("tournament_matches").update({
+            "winner_id": winner_id,
+            "status": "completed",
+            "completed_at": utc_now()
+        }).eq("id", match_id).execute()
+
+        loser_id = (
+            match["player2_id"]
+            if winner_id == match["player1_id"]
+            else match["player1_id"]
+        )
+
+        supabase.table("tournament_entries").update({
+            "eliminated_round": match["round_number"]
+        }).eq(
+            "tournament_id", match["tournament_id"]
+        ).eq(
+            "player_id", loser_id
+        ).execute()
+
+        round_matches = (
+            supabase.table("tournament_matches")
+            .select("*")
+            .eq("tournament_id", match["tournament_id"])
+            .eq("round_number", match["round_number"])
+            .execute()
+        )
+
+        matches = round_matches.data or []
+
+        if not matches or any(
+            item["status"] != "completed"
+            for item in matches
+        ):
+            return
+
+        winners = [
+            item["winner_id"]
+            for item in matches
+            if item.get("winner_id")
+        ]
+
+        if len(winners) == 1:
+            supabase.table("monthly_tournaments").update({
+                "status": "completed",
+                "champion_id": winners[0]
+            }).eq(
+                "id", match["tournament_id"]
+            ).execute()
+            return
+
+        next_round = match["round_number"] + 1
+
+        if next_round > 5:
+            return
+
+        create_tournament_round(
+            {
+                "id": match["tournament_id"]
+            },
+            winners,
+            next_round
+        )
+
+
+# ============================================================
+# TOURNAMENT GAME START
+# ============================================================
+
+@app.route(
+    "/api/tournament/match/<match_id>/start",
+    methods=["POST"]
+)
+def start_tournament_match(match_id):
+    try:
+        player, error = require_player()
+
+        if error:
+            return error
+
+        result = (
+            supabase.table("tournament_matches")
+            .select("*")
+            .eq("id", match_id)
+            .limit(1)
+            .execute()
+        )
+
+        if not result.data:
+            return jsonify({
+                "error": "Tournament match not found."
+            }), 404
+
+        match = result.data[0]
+
+        if player["id"] not in (
+            match["player1_id"],
+            match["player2_id"]
+        ):
+            return jsonify({
+                "error": "You are not in this match."
+            }), 403
+
+        if match["status"] == "completed":
+            return jsonify({
+                "error": "This match is already complete."
+            }), 409
+
+        if match["status"] == "waiting":
+            return jsonify({
+                "error": "This round is not ready."
+            }), 409
+
+        if match.get("game_match_id"):
+            return jsonify({
+                "error": "This match already has a game."
+            }), 409
+
+        opponent_id = (
+            match["player2_id"]
+            if player["id"] == match["player1_id"]
+            else match["player1_id"]
+        )
+
+        opponent_player = get_player_by_id(opponent_id)
+
+        if not opponent_player:
+            return jsonify({
+                "error": "Opponent unavailable."
+            }), 404
+
+        return jsonify({
+            "success": True,
+            "message": (
+                "Both tournament players must connect "
+                "through the online game system."
+            ),
+            "opponent": opponent_player["username"]
+        })
+
+    except Exception:
+        return database_error("starting tournament match")
+
+
+# ============================================================
+# DAILY CHALLENGE COMPLETION
+# ============================================================
+
+@app.route(
+    "/api/daily-challenge/complete",
+    methods=["POST"]
+)
+def complete_daily_challenge():
+    try:
+        player, error = require_player()
+
+        if error:
+            return error
+
+        today = date.today().isoformat()
+
+        challenge_result = (
+            supabase.table("daily_challenges")
+            .select("*")
+            .eq("challenge_date", today)
+            .limit(1)
+            .execute()
+        )
+
+        if not challenge_result.data:
+            return jsonify({
+                "error": "No daily challenge today."
+            }), 404
+
+        challenge = challenge_result.data[0]
+
+        existing = (
+            supabase.table("daily_challenge_completions")
+            .select("*")
+            .eq("challenge_id", challenge["id"])
+            .eq("player_id", player["id"])
+            .limit(1)
+            .execute()
+        )
+
+        if existing.data:
+            return jsonify({
+                "error": "You have already completed this challenge."
+            }), 409
+
+        supabase.table(
+            "daily_challenge_completions"
+        ).insert({
+            "challenge_id": challenge["id"],
+            "player_id": player["id"]
+        }).execute()
+
+        return jsonify({
+            "success": True
+        })
+
+    except Exception:
+        return database_error("completing daily challenge")
+
+
+# ============================================================
+# GAME OF THE DAY
+# ============================================================
+
+@app.route("/api/game-of-the-day")
+def game_of_the_day():
+    try:
+        result = (
+            supabase.table("game_of_the_day")
+            .select("*")
+            .order("created_at", desc=True)
+            .limit(1)
+            .execute()
+        )
+
+        if not result.data:
+            return jsonify({
+                "game": None
+            })
+
+        selected = result.data[0]
+
+        match = (
+            supabase.table("match_history")
+            .select("*")
+            .eq("match_id", selected["match_id"])
+            .limit(1)
+            .execute()
+        )
+
+        return jsonify({
+            "game": match.data[0] if match.data else None
+        })
+
+    except Exception:
+        return database_error("loading game of the day")
+
+
+# ============================================================
+# STARTUP
+# ============================================================
+
+@app.route("/health")
+def health():
+    return jsonify({
+        "status": "ok",
+        "application": "Mouseslip Chess"
+    })
 
 
 if __name__ == "__main__":
-    print("Mouseslip Chess server starting...")
+    socketio.start_background_task(clock_worker)
+
+    port = int(os.environ.get("PORT", 5000))
 
     socketio.run(
         app,
         host="0.0.0.0",
-        port=int(os.environ.get("PORT", 10000)),
-        debug=False,
+        port=port,
         allow_unsafe_werkzeug=True
     )
