@@ -270,9 +270,10 @@ header{padding:12px}.container{width:96%;margin:14px auto}
     <div class="panel"><h2>Player Profile</h2><div id="profileDetails"><p>Loading profile...</p></div></div>
     <div class="panel"><h2>Statistics</h2><div id="profileStats" class="stat-grid"></div></div>
     <div class="panel">
-        <h2>Achievements & Killer Awards</h2>
-        <p>Earn these awards by capturing 5 enemy kings with the corresponding piece.</p>
+        <h2>Achievements</h2>
         <div id="profileAchievements" class="button-grid"></div>
+        <h2>Killer Awards</h2>
+        <p>Capture 5 enemy kings with a piece to earn its award.</p>
         <div id="killerAwards" class="button-grid"></div>
     </div>
     <div class="panel"><h2>Match History</h2><div id="profileHistory"></div></div>
@@ -1456,16 +1457,13 @@ async function loadMyProfile(){
             ["pawn","Killer Pawn","♟"],["king","Killer King","♚"]
         ];
         const killerProgress=data.killer_progress||{};
-        document.getElementById("killerAwards").innerHTML=killerNames.map(([piece,name,symbol])=>{
-            const count=Math.min(5,Number(killerProgress[piece]||0));
-            const unlocked=count>=5;
-            return `<div class="badge-card">
+        const earnedKillerAwards=killerNames.filter(([piece])=>Number(killerProgress[piece]||0)>=5);
+        document.getElementById("killerAwards").innerHTML=earnedKillerAwards.map(([piece,name,symbol])=>`
+            <div class="badge-card">
                 <div class="badge-icon">${symbol}</div>
                 <strong>${name}</strong>
-                <p>${unlocked?"Unlocked!":count+" / 5 enemy kings captured"}</p>
-                <progress max="5" value="${count}" style="width:100%"></progress>
-            </div>`;
-        }).join("");
+            </div>
+        `).join("")||"<p>No Killer Awards earned yet.</p>";
         const history=data.history||[];
         document.getElementById("profileHistory").innerHTML=history.map(match=>`
             <div class="match-card">
