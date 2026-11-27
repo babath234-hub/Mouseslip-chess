@@ -128,6 +128,7 @@ header{padding:12px}.container{width:96%;margin:14px auto}
         <div class="button-grid">
             <button class="menu-button" onclick="showScreen('botSetupScreen')">Play Against Bot<span>Choose a difficulty and time control</span></button>
             <button class="menu-button" onclick="showScreen('onlineSetupScreen')">Play Online<span>Find a random opponent</span></button>
+            <button class="menu-button" onclick="showScreen('liveGamesScreen');loadLiveGames()">Watch Live Games<span>Spectate public games in progress</span></button>
             <button class="menu-button" onclick="showScreen('leaderboardScreen')">Leaderboard<span>See the highest-rated players</span></button>
             <button class="menu-button" onclick="showScreen('tournamentScreen');loadTournament()">Monthly Tournament<span>Join the 32-player knockout</span></button>
             <button class="menu-button" onclick="showScreen('profileScreen');loadMyProfile()">My Profile<span>Statistics, achievements and history</span></button>
@@ -209,6 +210,15 @@ header{padding:12px}.container{width:96%;margin:14px auto}
         <label>Join with room code</label><input id="joinRoomCode" maxlength="6" placeholder="ABC123">
         <button class="secondary" onclick="joinPrivateLobby()">Join Lobby</button>
         <div id="privateStatus"></div>
+    </div>
+</section>
+
+<section id="liveGamesScreen" class="screen">
+    <div class="panel">
+        <h2>Live Games</h2>
+        <p>Watch public Mouseslip Chess games in progress.</p>
+        <button class="secondary" onclick="loadLiveGames()">Refresh Games</button>
+        <div id="liveGamesList">Loading live games...</div>
     </div>
 </section>
 
@@ -316,12 +326,13 @@ header{padding:12px}.container{width:96%;margin:14px auto}
         <div id="gameStatus">Your turn</div>
         <div id="boardArea"><div id="board"></div><svg id="arrowLayer"></svg></div>
         <div class="row">
-            <button class="secondary" onclick="restartGame()">Restart</button>
-            <button class="danger" onclick="resignGame()">Resign</button>
+            <button class="secondary" id="restartGameButton" onclick="restartGame()">Restart</button>
+            <button class="danger" id="resignGameButton" onclick="resignGame()">Resign</button>
+            <button class="success hidden" id="rematchButton" onclick="requestRematch()">Rematch</button>
             <button class="secondary" onclick="showScreen('homeScreen')">Menu</button>
         </div>
     </div>
-    <div class="panel">
+    <div class="panel" id="gameChatPanel">
         <h3>Game Chat</h3>
         <div id="chatMessages"></div>
         <input id="chatInput" maxlength="300" placeholder="Message">
@@ -469,7 +480,7 @@ async function login(){
     const password=document.getElementById("loginPassword").value;
     try{
         const data=await api("/api/login",{method:"POST",body:JSON.stringify({username,password})});
-        currentUser=data.player||data.user;updateAccountUI();
+        currentUser=data.player||data.user;updateAccountUI();socket.emit("register_presence");
         showMessage("accountMessage","Logged in successfully.");
     }catch(error){showMessage("accountMessage",error.message,true)}
 }
@@ -478,12 +489,13 @@ async function register(){
     const password=document.getElementById("registerPassword").value;
     try{
         const data=await api("/api/register",{method:"POST",body:JSON.stringify({username,password})});
-        currentUser=data.player||data.user;updateAccountUI();
+        currentUser=data.player||data.user;updateAccountUI();socket.emit("register_presence");
         showMessage("accountMessage","Account created successfully.");
     }catch(error){showMessage("accountMessage",error.message,true)}
 }
 async function logout(){
     try{
+        socket.emit("unregister_presence");
         await api("/api/logout",{method:"POST"});
         currentUser=null;updateAccountUI();
         screenHistory=[];
@@ -712,7 +724,7 @@ function applyBoardTheme(){
 
 // PLAYER INPUT
 function handleSquareClick(r,c){
-    if(gameOver)return;
+    if(gameOver||gameMode==="spectator")return;
     const piece=board[r][c];
     if((gameMode==="online"||gameMode==="bot")&&currentTurn!==myColor)return;
     if(!selectedSquare){
@@ -846,6 +858,36 @@ function startClock(){
 }
 function stopClock(){if(clockInterval){clearInterval(clockInterval);clockInterval=null}}
 
+// LIVE GAMES AND SPECTATING
+async function loadLiveGames(){
+    const container=document.getElementById("liveGamesList");
+    container.textContent="Loading live games...";
+    try{
+        const data=await api("/api/live-games");
+        const games=data.games||[];
+        container.innerHTML=games.map(game=>`
+            <div class="match-card">
+                <strong>${escapeHTML(game.white)} vs ${escapeHTML(game.black)}</strong>
+                <p>${game.rated?"Rated":"Unrated"} · ${game.tournament?"Tournament":"Public game"} · ${game.turn==="white"?"White":"Black"} to move</p>
+                <button class="primary" onclick="watchLiveGame('${escapeHTML(game.room)}')">Watch Game</button>
+            </div>
+        `).join("")||"<p>No public games are live right now.</p>";
+    }catch(error){container.textContent=error.message}
+}
+function watchLiveGame(code){
+    gameMode="spectator";gameUnlimited=false;isTournamentGame=false;
+    currentGame=code;myColor="white";gameOver=false;selectedSquare=null;legalSquares=[];
+    document.getElementById("gameTitle").textContent="Watching Live Game";
+    document.getElementById("gameOpponent").textContent="Spectator mode";
+    document.getElementById("gameChatPanel").classList.add("hidden");
+    document.getElementById("restartGameButton").classList.add("hidden");
+    document.getElementById("resignGameButton").classList.add("hidden");
+    document.getElementById("rematchButton").classList.add("hidden");
+    document.getElementById("gameStatus").textContent="Connecting to live game...";
+    showScreen("gameScreen");
+    socket.emit("spectate_game",{room:code});
+}
+
 // ONLINE MATCHMAKING
 function findOnlineMatch(){
     if(!requireLogin())return;
@@ -882,6 +924,26 @@ function joinPrivateLobby(){
 }
 
 // SOCKET EVENTS
+socket.on("invite_status",data=>showMessage("friendMessage",data.message||"Invitation sent."));
+socket.on("invite_error",data=>showMessage("friendMessage",data.error||"Invitation failed.",true));
+socket.on("invite_declined",data=>showMessage("friendMessage",data.message||"Invitation declined.",true));
+socket.on("game_invite",data=>{
+    const accept=confirm(data.username+" invited you to a 5-minute Mouseslip Chess game. Accept?");
+    socket.emit("respond_game_invite",{invite_id:data.invite_id,accept});
+});
+socket.on("spectator_error",data=>{
+    document.getElementById("gameStatus").textContent=data.error||"Could not watch this game.";
+});
+socket.on("rematch_status",data=>{
+    document.getElementById("gameStatus").textContent=data.message||"Rematch update.";
+});
+socket.on("rematch_error",data=>{
+    document.getElementById("gameStatus").textContent=data.error||"Rematch unavailable.";
+});
+socket.on("rematch_offer",data=>{
+    const accept=confirm((data.username||"Your opponent")+" wants a rematch. Accept?");
+    socket.emit("respond_rematch",{room:data.room||currentGame,accept});
+});
 socket.on("queue_joined",data=>{
     document.getElementById("queueStatus").textContent=data.message||"Searching...";
 });
@@ -889,6 +951,7 @@ socket.on("match_error",data=>{
     queueSearching=false;
     document.getElementById("queueStatus").textContent=data.error||"Could not find a match.";
     document.getElementById("privateStatus").textContent=data.error||"Could not join the lobby.";
+    if(gameMode==="spectator")document.getElementById("gameStatus").textContent=data.error||"Could not join game.";
 });
 socket.on("private_lobby_created",data=>{
     privateRoomCode=data.room||data.code;
@@ -905,6 +968,10 @@ socket.on("match_found",data=>{
     whiteTime=gameUnlimited?0:Number(data.seconds);blackTime=gameUnlimited?0:Number(data.seconds);
     document.getElementById("gameTitle").textContent=data.tournament?"Tournament Match":data.rated?"Rated Online Game":"Private Game";
     document.getElementById("gameOpponent").textContent="Playing against "+(data.opponent||"Opponent");
+    document.getElementById("gameChatPanel").classList.remove("hidden");
+    document.getElementById("restartGameButton").classList.remove("hidden");
+    document.getElementById("resignGameButton").classList.remove("hidden");
+    document.getElementById("rematchButton").classList.add("hidden");
     document.getElementById("queueStatus").textContent="";
     document.getElementById("cancelQueueButton").classList.add("hidden");
     showScreen("gameScreen");renderBoard();startClock();
@@ -944,8 +1011,13 @@ socket.on("move_error",data=>{
 });
 socket.on("match_result",data=>{
     gameOver=true;stopClock();
+    if(gameMode==="spectator"){
+        document.getElementById("gameStatus").textContent="Game finished — "+(data.winner==="white"?"White":"Black")+" won ("+(data.reason||"finished")+")";
+        return;
+    }
     const won=data.winner===myColor;
     document.getElementById("gameStatus").textContent=(won?"You won!":"You lost!")+" — "+(data.reason||"Game finished");
+    if(gameMode==="online"&&!isTournamentGame)document.getElementById("rematchButton").classList.remove("hidden");
     if(data.ratings){
         const rating=data.ratings[myColor];
         if(rating&&currentUser){currentUser.rating=rating;updateAccountUI()}
@@ -963,6 +1035,11 @@ function parseSquare(square){
 }
 
 // GAME CONTROLS
+function requestRematch(){
+    if(gameMode!=="online"||!currentGame)return;
+    document.getElementById("gameStatus").textContent="Sending rematch request...";
+    socket.emit("request_rematch",{room:currentGame});
+}
 function resignGame(){
     if(gameMode==="online")socket.emit("resign");
     else endLocalGame(myColor==="white"?"black":"white","resignation");
@@ -982,6 +1059,7 @@ function addChatMessage(username,message){
     container.scrollTop=container.scrollHeight;
 }
 function sendChat(){
+    if(gameMode==="spectator")return;
     const input=document.getElementById("chatInput"),message=input.value.trim();
     if(!message)return;
     if(gameMode!=="online"){addChatMessage("You",message);input.value="";return}
@@ -1150,13 +1228,17 @@ async function loadFriends(){
     try{
         const data=await api("/api/friends"),friends=data.friends||[],requests=data.requests||[];
         container.innerHTML="<h3>Friends</h3>"+
-            (friends.map(friend=>`<div class="match-card">${escapeHTML(friend.username)}</div>`).join("")||"<p>No friends yet.</p>")+
+            (friends.map(friend=>`<div class="match-card">${escapeHTML(friend.username)} <button class="secondary" onclick="inviteFriend('${escapeHTML(friend.id)}')">Invite to Game</button></div>`).join("")||"<p>No friends yet.</p>")+
             "<h3>Incoming requests</h3>"+
             (requests.map(request=>`
                 <div class="match-card">${escapeHTML(request.username)}
                 <button class="success" onclick="acceptFriend('${escapeHTML(request.id)}')">Accept</button></div>
             `).join("")||"<p>No incoming requests.</p>");
     }catch(error){container.textContent=error.message}
+}
+function inviteFriend(friendId){
+    if(!requireLogin())return;
+    socket.emit("invite_friend",{friend_id:friendId});
 }
 async function sendFriendRequest(){
     if(!requireLogin())return;
