@@ -9,7 +9,8 @@ import string
 import logging
 import threading
 
-from datetime import datetime, timezone, date
+from datetime import datetime, timezone, date, timedelta
+from zoneinfo import ZoneInfo
 from flask import Flask, render_template, request, jsonify, session
 from flask_socketio import SocketIO, emit, join_room, leave_room
 from werkzeug.security import generate_password_hash, check_password_hash
@@ -47,6 +48,163 @@ waiting_players = []
 connected_sids = set()
 
 tournament_lock = threading.RLock()
+_firebase_app = None
+RIYADH = ZoneInfo("Asia/Riyadh")
+SITE_URL = "https://mouseslip-chess-1.onrender.com/"
+
+
+# ============================================================
+# FIREBASE WEB PUSH
+# ============================================================
+
+def get_firebase_messaging():
+    global _firebase_app
+
+    import firebase_admin
+    from firebase_admin import credentials, messaging
+
+    if _firebase_app is None:
+        raw_key = os.environ.get("FIREBASE_SERVICE_ACCOUNT_JSON")
+        if not raw_key:
+            raise RuntimeError("FIREBASE_SERVICE_ACCOUNT_JSON is not configured.")
+
+        certificate = credentials.Certificate(json.loads(raw_key))
+
+        try:
+            _firebase_app = firebase_admin.get_app()
+        except ValueError:
+            _firebase_app = firebase_admin.initialize_app(certificate)
+
+    return messaging
+
+
+def send_tournament_push(tournament_id, title, body):
+    entries = tournament_entries(tournament_id)
+    player_ids = list({
+        entry["player_id"] for entry in entries
+    })
+
+    if not player_ids:
+        return 0
+
+    subscriptions = (
+        supabase.table("push_subscriptions")
+        .select("fcm_token")
+        .in_("player_id", player_ids)
+        .execute()
+    )
+    tokens = list(dict.fromkeys(
+        item["fcm_token"] for item in (subscriptions.data or [])
+        if item.get("fcm_token")
+    ))
+
+    if not tokens:
+        return 0
+
+    messaging = get_firebase_messaging()
+    message = messaging.MulticastMessage(
+        tokens=tokens,
+        notification=messaging.Notification(title=title, body=body),
+        data={"url": SITE_URL},
+        webpush=messaging.WebpushConfig(
+            notification=messaging.WebpushNotification(
+                title=title,
+                body=body,
+                icon="/favicon.ico"
+            ),
+            fcm_options=messaging.WebpushFCMOptions(link=SITE_URL)
+        )
+    )
+
+    response = messaging.send_each_for_multicast(message)
+    for index, result in enumerate(response.responses):
+        if result.success:
+            continue
+        error_code = getattr(result.exception, "code", "")
+        if error_code in (
+            "messaging/registration-token-not-registered",
+            "messaging/invalid-registration-token"
+        ):
+            supabase.table("push_subscriptions").delete().eq(
+                "fcm_token", tokens[index]
+            ).execute()
+
+    return response.success_count
+
+
+def parse_tournament_datetime(value):
+    if not value:
+        return None
+    parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed
+
+
+def process_scheduled_tournaments():
+    now = datetime.now(timezone.utc)
+    result = (
+        supabase.table("monthly_tournaments")
+        .select("*")
+        .eq("status", "registration")
+        .not_.is_("scheduled_at", "null")
+        .execute()
+    )
+
+    for tournament in result.data or []:
+        scheduled = parse_tournament_datetime(tournament.get("scheduled_at"))
+        if not scheduled:
+            continue
+
+        scheduled_local = scheduled.astimezone(RIYADH)
+        date_label = scheduled_local.strftime("%A, %d %B %Y at 5:00 PM")
+
+        if not tournament.get("announcement_sent", False):
+            send_tournament_push(
+                tournament["id"],
+                "Mouseslip Chess tournament scheduled!",
+                f"The 32-player tournament is scheduled for {date_label} Saudi time."
+            )
+            supabase.table("monthly_tournaments").update({
+                "announcement_sent": True
+            }).eq("id", tournament["id"]).execute()
+            tournament["announcement_sent"] = True
+
+        if now < scheduled:
+            hours_left = (scheduled - now).total_seconds() / 3600
+
+            if hours_left <= 24 and not tournament.get("reminder_24h_sent", False):
+                send_tournament_push(
+                    tournament["id"],
+                    "Tournament reminder: 24 hours to go!",
+                    f"The Mouseslip Chess tournament begins {date_label} Saudi time."
+                )
+                supabase.table("monthly_tournaments").update({
+                    "reminder_24h_sent": True
+                }).eq("id", tournament["id"]).execute()
+                tournament["reminder_24h_sent"] = True
+
+            if hours_left <= 1 and not tournament.get("reminder_1h_sent", False):
+                send_tournament_push(
+                    tournament["id"],
+                    "Tournament starts in 1 hour!",
+                    f"Get ready. The tournament begins at 5:00 PM Saudi time."
+                )
+                supabase.table("monthly_tournaments").update({
+                    "reminder_1h_sent": True
+                }).eq("id", tournament["id"]).execute()
+
+        if now >= scheduled:
+            start_tournament(tournament)
+
+
+def tournament_scheduler():
+    while True:
+        try:
+            process_scheduled_tournaments()
+        except Exception:
+            app.logger.exception("Tournament scheduler check failed.")
+        socketio.sleep(30)
 
 
 # ============================================================
@@ -2308,15 +2466,14 @@ def start_tournament(tournament):
             return
 
         entries = tournament_entries(tournament["id"])
+        scheduled = parse_tournament_datetime(tournament.get("scheduled_at"))
 
-        if len(entries) != 32:
+        if len(entries) != 32 or not all(item.get("is_ready") for item in entries):
+            return
+        if not scheduled or datetime.now(timezone.utc) < scheduled:
             return
 
-        player_ids = [
-            item["player_id"]
-            for item in entries
-        ]
-
+        player_ids = [item["player_id"] for item in entries]
         random.shuffle(player_ids)
 
         for index, entry in enumerate(entries):
@@ -2328,11 +2485,7 @@ def start_tournament(tournament):
             "status": "in_progress"
         }).eq("id", tournament["id"]).execute()
 
-        create_tournament_round(
-            tournament,
-            player_ids,
-            1
-        )
+        create_tournament_round(tournament, player_ids, 1)
 
 
 # ============================================================
@@ -2379,6 +2532,13 @@ def tournament_info():
             if player:
                 names[player_id] = player["username"]
 
+        logged_in_player = current_player()
+        my_entry = next(
+            (item for item in entries
+             if logged_in_player and item["player_id"] == logged_in_player["id"]),
+            None
+        )
+
         return jsonify({
             "tournament": tournament,
             "players": [
@@ -2395,7 +2555,10 @@ def tournament_info():
             "matches": matches_result.data or [],
             "player_names": names,
             "maximum_players": 32,
-            "joined": len(entries)
+            "joined": len(entries),
+            "ready": sum(1 for item in entries if item.get("is_ready")),
+            "my_entry_joined": bool(my_entry),
+            "my_entry_ready": bool(my_entry and my_entry.get("is_ready"))
         })
 
     except Exception:
@@ -2444,17 +2607,117 @@ def join_tournament():
 
         entries = tournament_entries(tournament["id"])
 
-        if len(entries) == 32:
-            start_tournament(tournament)
-
         return jsonify({
             "success": True,
             "joined": len(entries),
-            "started": len(entries) == 32
+            "started": False
         })
 
     except Exception:
         return database_error("joining tournament")
+
+
+@app.route("/api/tournament/ready", methods=["POST"])
+def ready_for_tournament():
+    try:
+        player, error = require_player()
+        if error:
+            return error
+
+        tournament = get_or_create_monthly_tournament()
+        if not tournament or tournament.get("status") != "registration":
+            return jsonify({"error": "Registration is closed."}), 409
+
+        entries = tournament_entries(tournament["id"])
+        entry = next(
+            (item for item in entries if item["player_id"] == player["id"]),
+            None
+        )
+        if not entry:
+            return jsonify({"error": "Join the tournament before checking in."}), 409
+        if len(entries) != 32:
+            return jsonify({"error": "All 32 players must join before anyone can check in."}), 409
+
+        if not entry.get("is_ready"):
+            supabase.table("tournament_entries").update({
+                "is_ready": True,
+                "ready_at": utc_now()
+            }).eq("id", entry["id"]).execute()
+
+        entries = tournament_entries(tournament["id"])
+        ready_count = sum(1 for item in entries if item.get("is_ready"))
+        scheduled_at = tournament.get("scheduled_at")
+
+        if ready_count == 32 and not scheduled_at:
+            local_now = datetime.now(RIYADH)
+            tournament_day = (local_now.date() + timedelta(days=7))
+            scheduled_local = datetime(
+                tournament_day.year, tournament_day.month, tournament_day.day,
+                17, 0, 0, tzinfo=RIYADH
+            )
+            scheduled_at = scheduled_local.astimezone(timezone.utc).isoformat()
+            supabase.table("monthly_tournaments").update({
+                "scheduled_at": scheduled_at,
+                "announcement_sent": False,
+                "reminder_24h_sent": False,
+                "reminder_1h_sent": False
+            }).eq("id", tournament["id"]).execute()
+
+            try:
+                process_scheduled_tournaments()
+            except Exception:
+                app.logger.exception("Could not send tournament announcement.")
+
+        return jsonify({
+            "success": True,
+            "ready": True,
+            "ready_count": ready_count,
+            "scheduled_at": scheduled_at
+        })
+    except Exception:
+        return database_error("checking in for tournament")
+
+
+@app.route("/api/push/subscribe", methods=["POST"])
+def subscribe_push():
+    try:
+        player, error = require_player()
+        if error:
+            return error
+
+        data = request.get_json(silent=True) or {}
+        token = str(data.get("token", "")).strip()
+        if not token or len(token) > 4096:
+            return jsonify({"error": "Invalid notification token."}), 400
+
+        supabase.table("push_subscriptions").upsert({
+            "player_id": player["id"],
+            "fcm_token": token,
+            "updated_at": utc_now()
+        }, on_conflict="fcm_token").execute()
+
+        return jsonify({"success": True})
+    except Exception:
+        return database_error("saving push subscription")
+
+
+@app.route("/api/push/unsubscribe", methods=["POST"])
+def unsubscribe_push():
+    try:
+        player, error = require_player()
+        if error:
+            return error
+
+        data = request.get_json(silent=True) or {}
+        token = str(data.get("token", "")).strip()
+        if token:
+            supabase.table("push_subscriptions").delete().eq(
+                "player_id", player["id"]
+            ).eq("fcm_token", token).execute()
+
+        return jsonify({"success": True})
+    except Exception:
+        return database_error("removing push subscription")
 
 
 # ============================================================
@@ -2741,6 +3004,7 @@ def health():
 
 if __name__ == "__main__":
     socketio.start_background_task(clock_worker)
+    socketio.start_background_task(tournament_scheduler)
 
     port = int(os.environ.get("PORT", 5000))
 
