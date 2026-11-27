@@ -851,12 +851,15 @@ function handleSquareClick(r,c){
     const movingColor=currentTurn;
     const promotion=board[start[0]][start[1]].toLowerCase()==="p"&&(slipped[0]===0||slipped[0]===7)?slipPromotion(requestedPromotion()):"q";
     const captured=applyLocalMove(start,slipped,promotion);
-    if(captured&&captured.toLowerCase()==="k"){endLocalGame(movingColor,"king captured");return}
     currentTurn=movingColor==="white"?"black":"white";
     if(movingColor===myColor&&botIncrement){
         if(movingColor==="white")whiteTime+=botIncrement;else blackTime+=botIncrement;
     }
     renderBoard();
+    if(captured&&captured.toLowerCase()==="k"){
+        endLocalGame(movingColor,"king captured");
+        return;
+    }
     if(currentTurn!==myColor)setTimeout(botMove,350);
 }
 
@@ -907,12 +910,15 @@ function botMove(){
     const destination=chooseSlip(move.from,move.to,destinations);
     const movingColor=currentTurn;
     const captured=applyLocalMove(move.from,destination,randomPromotion());
-    if(captured&&captured.toLowerCase()==="k"){endLocalGame(movingColor,"king captured");return}
     currentTurn=currentTurn==="white"?"black":"white";
     if(botIncrement){
         if(movingColor==="white")whiteTime+=botIncrement;else blackTime+=botIncrement;
     }
     renderBoard();
+    if(captured&&captured.toLowerCase()==="k"){
+        endLocalGame(movingColor,"king captured");
+        return;
+    }
 }
 
 // LOCAL GAME RESULT
