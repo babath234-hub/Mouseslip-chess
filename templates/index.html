@@ -688,7 +688,11 @@ function randomPromotion(){return slipPromotion(["q","r","b","n"][Math.floor(Mat
 function chooseSlip(start,intended,destinations){
     if(!destinations.length)return intended;
     const piece=board[start[0]][start[1]],isKnight=piece.toLowerCase()==="n";
-    let alternatives=destinations.filter(move=>move[0]!==intended[0]||move[1]!==intended[1]);
+    let alternatives=destinations.filter(move=>
+        (move[0]!==intended[0]||move[1]!==intended[1])&&
+        (isKnight||
+            (Math.abs(move[0]-intended[0])<=1&&Math.abs(move[1]-intended[1])<=1))
+    );
     if(isKnight){
         const intendedDirection=Math.sign(intended[0]-start[0]);
         alternatives=alternatives.filter(move=>Math.sign(move[0]-start[0])===intendedDirection);
