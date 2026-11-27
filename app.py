@@ -47,7 +47,6 @@ sid_room = {}
 waiting_players = []
 connected_sids = set()
 tournament_waiting = {}
-tournament_waiting = {}
 player_sids = {}
 spectator_rooms = {}
 rematch_requests = {}
@@ -1993,6 +1992,14 @@ def clock_worker():
 
 @socketio.on("connect")
 def socket_connected(auth=None):
+    player = current_player()
+    if player:
+        player_sids[player["id"]] = request.sid
+        connected_sids.add(request.sid)
+
+
+@socketio.on("register_presence")
+def register_socket_presence():
     player = current_player()
     if player:
         player_sids[player["id"]] = request.sid
