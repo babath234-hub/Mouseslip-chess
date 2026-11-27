@@ -1077,6 +1077,10 @@ function botMove(){
         endLocalGame(movingColor,"king captured");
         return;
     }
+    if(gameMode==="dailyChallenge"&&!allMovesFor(currentTurn).length){
+        endLocalGame(movingColor,"the player to move has no legal moves");
+        return;
+    }
     if(dailyChallengeReachedFiftyMoveRule()){
         endLocalGame("draw","50-move rule — 50 moves by each side without a pawn move or capture");
     }
