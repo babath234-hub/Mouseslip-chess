@@ -347,6 +347,7 @@ let selectedSquare=null,legalSquares=[],board=[],currentTurn="white";
 let gameOver=false,queueSearching=false,privateRoomCode=null;
 let botDifficulty=2,botColor="white",botTime=300,botIncrement=0;
 let whiteTime=300,blackTime=300,clockInterval=null,lastMove=null;
+let gameUnlimited=false,isTournamentGame=false;
 let gameMoves=[],customBoardTheme="classic",customPieceTheme="classic";
 let gameStartTime=0,analysisArrows=[];
 
@@ -502,7 +503,7 @@ async function changeUsername(){
 async function loadLeaderboard(){
     const search=document.getElementById("leaderboardSearch").value.trim();
     try{
-        const data=await api("/api/leaderboard"+(search?"?search="+encodeURIComponent(search):""));
+        const data=await api("/api/leaderboard"+(search?"?q="+encodeURIComponent(search):""));
         const players=data.players||data.leaderboard||[];
         document.getElementById("leaderboardRows").innerHTML=players.map((player,index)=>`
             <tr><td>${player.rank||index+1}</td><td>${escapeHTML(player.username)}</td><td>${player.rating}</td></tr>
@@ -518,7 +519,7 @@ async function loadSeasonalLeaderboard(){
 // BOT GAME
 function startBotGame(){
     if(!currentUser){showScreen("accountScreen");showMessage("accountMessage","Log in before playing.");return}
-    gameMode="bot";
+    gameMode="bot";gameUnlimited=false;isTournamentGame=false;
     botDifficulty=Number(document.getElementById("botDifficulty").value);
     botColor=document.getElementById("botColor").value;
     botTime=Number(document.getElementById("botSeconds").value);
@@ -784,15 +785,14 @@ function formatTime(seconds){
     return minutes+":"+String(remainder).padStart(2,"0");
 }
 function updateClocks(){
-    const unlimitedBot=gameMode==="bot"&&botTime===0;
-    document.getElementById("whiteClock").textContent=unlimitedBot?"∞":formatTime(whiteTime);
-    document.getElementById("blackClock").textContent=unlimitedBot?"∞":formatTime(blackTime);
+    const unlimited=gameUnlimited||(gameMode==="bot"&&botTime===0);
+    document.getElementById("whiteClock").textContent=unlimited?"∞":formatTime(whiteTime);
+    document.getElementById("blackClock").textContent=unlimited?"∞":formatTime(blackTime);
     document.getElementById("whiteClock").classList.toggle("active",currentTurn==="white");
     document.getElementById("blackClock").classList.toggle("active",currentTurn==="black");
 }
 function startClock(){
     stopClock();
-    if(gameMode==="online"&&!whiteTime&&!blackTime)return;
     updateClocks();
     clockInterval=setInterval(()=>{
         if(gameOver)return;
@@ -809,7 +809,7 @@ function stopClock(){if(clockInterval){clearInterval(clockInterval);clockInterva
 // ONLINE MATCHMAKING
 function findOnlineMatch(){
     if(!requireLogin())return;
-    gameMode="online";queueSearching=true;
+    gameMode="online";gameUnlimited=false;isTournamentGame=false;queueSearching=true;
     document.getElementById("queueStatus").textContent="Searching for an opponent...";
     document.getElementById("cancelQueueButton").classList.remove("hidden");
     socket.emit("find_match",{
@@ -825,7 +825,7 @@ async function cancelQueue(){
 }
 function createPrivateLobby(){
     if(!requireLogin())return;
-    gameMode="online";
+    gameMode="online";gameUnlimited=false;isTournamentGame=false;
     socket.emit("create_private_lobby",{
         seconds:Number(document.getElementById("privateSeconds").value),
         increment:Number(document.getElementById("privateIncrement").value),
@@ -852,13 +852,17 @@ socket.on("match_error",data=>{
 });
 socket.on("private_lobby_created",data=>{
     privateRoomCode=data.room||data.code;
-    document.getElementById("privateStatus").textContent="Your room code is: "+privateRoomCode;
+    document.getElementById("privateStatus").innerHTML=
+        "<strong style='font-size:24px;letter-spacing:3px'>"+escapeHTML(privateRoomCode)+"</strong>"+
+        "<p>Share this code with your opponent.</p>";
 });
 socket.on("match_found",data=>{
     queueSearching=false;gameMode="online";myColor=data.color;currentGame=data.room;
     gameOver=false;selectedSquare=null;legalSquares=[];lastMove=null;gameMoves=[];
+    gameUnlimited=!!data.unlimited||Number(data.seconds)===0;
+    isTournamentGame=!!data.tournament;
     board=initialBoard();currentTurn="white";
-    whiteTime=Number(data.seconds);blackTime=Number(data.seconds);
+    whiteTime=gameUnlimited?0:Number(data.seconds);blackTime=gameUnlimited?0:Number(data.seconds);
     document.getElementById("gameTitle").textContent=data.rated?"Rated Online Game":"Private Game";
     document.getElementById("gameOpponent").textContent="Playing against "+(data.opponent||"Opponent");
     document.getElementById("queueStatus").textContent="";
@@ -869,8 +873,19 @@ socket.on("match_found",data=>{
 socket.on("game_started",data=>{
     if(data.board)board=data.board;
     if(data.turn)currentTurn=data.turn;
+    gameUnlimited=!!data.unlimited;
+    isTournamentGame=!!data.tournament;
     whiteTime=data.white_time??whiteTime;blackTime=data.black_time??blackTime;
     gameMoves=data.moves||[];renderBoard();updateClocks();
+});
+socket.on("clock_update",data=>{
+    whiteTime=Number(data.white_time??whiteTime);
+    blackTime=Number(data.black_time??blackTime);
+    if(data.turn)currentTurn=data.turn;
+    updateClocks();
+});
+socket.on("tournament_waiting",data=>{
+    document.getElementById("tournamentStatus").textContent=data.message||"Waiting for your opponent to open the match.";
 });
 socket.on("move_made",data=>{
     board=data.board;currentTurn=data.turn;
@@ -1018,8 +1033,10 @@ function renderTournamentBracket(data){
 async function startTournamentMatch(matchId){
     try{
         const data=await api("/api/tournament/match/"+encodeURIComponent(matchId)+"/start",{method:"POST",body:JSON.stringify({})});
-        alert(data.message||"Tournament match information loaded.");
-    }catch(error){alert(error.message)}
+        gameMode="online";gameUnlimited=false;isTournamentGame=true;
+        document.getElementById("tournamentStatus").textContent="Opening your tournament game. "+(data.opponent?"Opponent: "+data.opponent:"");
+        socket.emit("join_tournament_match",{match_id:matchId});
+    }catch(error){showMessage("tournamentStatus",error.message,true)}
 }
 
 // PROFILE AND STATISTICS
@@ -1029,7 +1046,7 @@ async function loadMyProfile(){
     details.textContent="Loading profile...";stats.innerHTML="";
     try{
         const data=await api("/api/profile/"+encodeURIComponent(currentUser.username));
-        const player=data.player||currentUser,statistics=data.stats||{};
+        const player=data.profile||data.player||currentUser,statistics=data.stats||player.stats||{};
         details.innerHTML=`<h3>${escapeHTML(player.username)}</h3><p>Rating: ${player.rating}</p>`;
 
         const normalMoves=Number(statistics.normal_moves||0);
@@ -1098,13 +1115,13 @@ async function sendFriendRequest(){
     if(!requireLogin())return;
     const username=document.getElementById("friendUsername").value.trim();
     try{
-        await api("/api/friends/request",{method:"POST",body:JSON.stringify({username})});
+        await api("/api/friends",{method:"POST",body:JSON.stringify({username})});
         showMessage("friendMessage","Friend request sent.");
     }catch(error){showMessage("friendMessage",error.message,true)}
 }
 async function acceptFriend(id){
     try{
-        await api("/api/friends/accept",{method:"POST",body:JSON.stringify({request_id:id})});
+        await api("/api/friends/"+encodeURIComponent(id)+"/respond",{method:"POST",body:JSON.stringify({action:"accept"})});
         loadFriends();
     }catch(error){alert(error.message)}
 }
@@ -1119,8 +1136,8 @@ async function loadHallOfFame(){
             `).join("")||"<p>No records yet.</p>";
         }
         document.getElementById("hallRating").innerHTML=makeRows(data.highest_rated);
-        document.getElementById("hallStreaks").innerHTML=makeRows(data.longest_streaks);
-        document.getElementById("hallGames").innerHTML=makeRows(data.most_games);
+        document.getElementById("hallStreaks").innerHTML=makeRows(data.longest_win_streaks||data.longest_streaks);
+        document.getElementById("hallGames").innerHTML=makeRows(data.most_games_played||data.most_games);
     }catch(error){document.getElementById("hallRating").textContent=error.message}
 }
 
@@ -1130,7 +1147,8 @@ async function loadDailyChallenge(){
     try{
         const data=await api("/api/daily-challenge");
         if(!data.challenge){container.textContent="No daily challenge has been published.";return}
-        container.innerHTML=`<h3>${escapeHTML(data.challenge.title||"Daily Challenge")}</h3><p>${escapeHTML(data.challenge.description||"")}</p>`;
+        container.innerHTML=`<h3>${escapeHTML(data.challenge.title||"Daily Challenge")}</h3><p>${escapeHTML(data.challenge.description||"")}</p>`+
+            (data.completed?"<p>You have completed today's challenge.</p>":"");
     }catch(error){container.textContent=error.message}
 }
 async function completeDailyChallenge(){
@@ -1147,7 +1165,7 @@ async function saveCustomization(){
     customBoardTheme=document.getElementById("boardTheme").value;
     customPieceTheme=document.getElementById("pieceTheme").value;
     try{
-        await api("/api/customization",{method:"POST",body:JSON.stringify({
+        await api("/api/player/customization",{method:"POST",body:JSON.stringify({
             board_theme:customBoardTheme,piece_theme:customPieceTheme
         })});
         showMessage("customizationMessage","Customisation saved.");renderBoard();
