@@ -245,7 +245,10 @@ header{padding:12px}.container{width:96%;margin:14px auto}
         <h2>Monthly Tournament</h2>
         <p>A 32-player knockout tournament. Players are randomly paired. Winners advance and losers are eliminated.</p>
         <div id="tournamentStatus">Loading tournament...</div>
-        <button class="primary" onclick="joinTournament()">Join Tournament</button>
+        <button class="primary" id="joinTournamentButton" onclick="joinTournament()">Join Tournament</button>
+        <button class="primary hidden" id="readyTournamentButton" onclick="readyTournament()">I'm Ready</button>
+        <button class="secondary" id="enableNotificationsButton" onclick="enableTournamentNotifications()">Enable Notifications</button>
+        <div id="notificationStatus" class="muted"></div>
         <button class="secondary" onclick="loadTournament()">Refresh</button>
     </div>
     <div class="panel"><h2>Tournament Bracket</h2><div id="tournamentBracket"></div></div>
@@ -929,24 +932,59 @@ function sendChat(){
 
 // TOURNAMENT
 let tournamentData=null;
+function formatTournamentDate(value){
+    if(!value)return "";
+    const date=new Date(value);
+    return date.toLocaleString("en-GB",{
+        timeZone:"Asia/Riyadh",weekday:"long",day:"numeric",
+        month:"long",year:"numeric",hour:"numeric",minute:"2-digit",
+        hour12:true
+    })+" Saudi time";
+}
 async function loadTournament(){
     const status=document.getElementById("tournamentStatus"),bracket=document.getElementById("tournamentBracket");
     status.textContent="Loading tournament...";bracket.innerHTML="";
     try{
         const data=await api("/api/tournament");tournamentData=data;
-        const tournament=data.tournament,joined=data.joined||0;
+        const tournament=data.tournament,joined=data.joined||0,ready=data.ready||0;
+        const joinButton=document.getElementById("joinTournamentButton");
+        const readyButton=document.getElementById("readyTournamentButton");
+        const notifyButton=document.getElementById("enableNotificationsButton");
+        joinButton.classList.toggle("hidden",!!data.my_entry_joined||joined>=32||tournament.status!=="registration");
+        readyButton.classList.toggle("hidden",!data.my_entry_joined||!!data.my_entry_ready||joined!==32||tournament.status!=="registration");
+        notifyButton.classList.toggle("hidden",!currentUser);
+        let scheduleText=tournament.scheduled_at
+            ? "<p><strong>Scheduled start:</strong> "+escapeHTML(formatTournamentDate(tournament.scheduled_at))+"</p>"
+            : "<p>The tournament will be scheduled once all 32 players have joined and checked in.</p>";
+        let personalText=!currentUser
+            ? "<p>Log in to join the tournament.</p>"
+            : data.my_entry_ready
+                ? "<p>You are checked in and ready.</p>"
+                : data.my_entry_joined
+                    ? "<p>You have joined. Check in when all 32 players have joined.</p>"
+                    : "";
         status.innerHTML=`
-            <p><strong>Status:</strong> ${escapeHTML(tournament.status)}</p>
-            <p><strong>Players:</strong> ${joined}/32</p>
-            <p>When 32 players join, the tournament starts automatically.</p>`;
+            <p><strong>Status:</strong> ${escapeHTML(tournament.status.replaceAll("_"," "))}</p>
+            <p><strong>Players joined:</strong> ${joined}/32</p>
+            <p><strong>Players ready:</strong> ${ready}/32</p>
+            ${scheduleText}${personalText}`;
         renderTournamentBracket(data);
     }catch(error){status.textContent=error.message}
 }
 async function joinTournament(){
     if(!requireLogin())return;
     try{
-        const data=await api("/api/tournament/join",{method:"POST",body:JSON.stringify({})});
-        showMessage("tournamentStatus",data.started?"32 players joined! The tournament has started.":"You joined the tournament.");
+        await api("/api/tournament/join",{method:"POST",body:JSON.stringify({})});
+        await loadTournament();
+    }catch(error){showMessage("tournamentStatus",error.message,true)}
+}
+async function readyTournament(){
+    if(!requireLogin())return;
+    try{
+        const data=await api("/api/tournament/ready",{method:"POST",body:JSON.stringify({})});
+        if(data.scheduled_at){
+            showMessage("tournamentStatus","All 32 players are ready! Tournament scheduled for "+formatTournamentDate(data.scheduled_at)+".");
+        }
         await loadTournament();
     }catch(error){showMessage("tournamentStatus",error.message,true)}
 }
@@ -1166,6 +1204,73 @@ async function initialise(){
     updateBackButton();
 }
 initialise();
+</script>
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-app.js";
+import { getMessaging, getToken, onMessage } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-messaging.js";
+
+const firebaseConfig = {
+    apiKey: "PASTE_FIREBASE_WEB_API_KEY_HERE",
+    authDomain: "mouseslip-chess.firebaseapp.com",
+    projectId: "mouseslip-chess",
+    storageBucket: "mouseslip-chess.firebasestorage.app",
+    messagingSenderId: "858877919720",
+    appId: "1:858877919720:web:c76c48d5e4033cc250e45d",
+    measurementId: "G-WYPRKP698X"
+};
+const firebaseVapidKey = "PASTE_FIREBASE_VAPID_PUBLIC_KEY_HERE";
+
+let browserMessaging = null;
+try {
+    const firebaseApp = initializeApp(firebaseConfig);
+    browserMessaging = getMessaging(firebaseApp);
+    onMessage(browserMessaging, payload => {
+        const title = payload.notification?.title || "Mouseslip Chess";
+        const body = payload.notification?.body || "You have a tournament update.";
+        const status = document.getElementById("notificationStatus");
+        if (status) status.textContent = title + " — " + body;
+    });
+} catch (error) {
+    console.error("Firebase Messaging could not initialise:", error);
+}
+
+window.enableTournamentNotifications = async function(){
+    const status = document.getElementById("notificationStatus");
+    const button = document.getElementById("enableNotificationsButton");
+    try {
+        if (!browserMessaging) throw new Error("Notifications are not configured yet.");
+        if (!("Notification" in window) || !("serviceWorker" in navigator)) {
+            throw new Error("This browser does not support web notifications.");
+        }
+        if (Notification.permission === "denied") {
+            throw new Error("Notifications are blocked in your browser settings.");
+        }
+        const permission = await Notification.requestPermission();
+        if (permission !== "granted") throw new Error("Notification permission was not granted.");
+
+        const registration = await navigator.serviceWorker.register("/firebase-messaging-sw.js");
+        const token = await getToken(browserMessaging, {
+            vapidKey: firebaseVapidKey,
+            serviceWorkerRegistration: registration
+        });
+        if (!token) throw new Error("Could not obtain a notification token. Try again.");
+        await fetch("/api/push/subscribe", {
+            method: "POST",
+            credentials: "same-origin",
+            headers: {"Content-Type":"application/json"},
+            body: JSON.stringify({token})
+        }).then(async response => {
+            const data = await response.json().catch(()=>({}));
+            if (!response.ok) throw new Error(data.error || "Could not save notification settings.");
+            return data;
+        });
+        status.textContent = "Notifications enabled on this device.";
+        button.textContent = "Notifications Enabled";
+        button.disabled = true;
+    } catch (error) {
+        if (status) status.textContent = error.message;
+    }
+};
 </script>
 </body>
 </html>
