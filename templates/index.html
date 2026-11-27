@@ -320,8 +320,35 @@ header{padding:12px}.container{width:96%;margin:14px auto}
     <div class="panel">
         <h2>Daily Challenge</h2>
         <div id="dailyChallenge">Loading today's challenge...</div>
-        <button class="primary" onclick="completeDailyChallenge()">Mark as Completed</button>
+        <button class="primary" id="playDailyChallengeButton" onclick="startDailyChallengeGame()" disabled>Play Today's Challenge</button>
         <div id="dailyMessage"></div>
+        <p id="dailyQueueInfo"></p>
+    </div>
+    <div class="panel">
+        <h2>Publish a Challenge</h2>
+        <p>Set up a position by choosing a piece and clicking squares. Your submission joins the queue; one challenge is published each day.</p>
+        <label>Piece to place</label>
+        <select id="challengeEditorPiece">
+            <option value=".">Clear square</option>
+            <option value="K">White King</option><option value="Q">White Queen</option>
+            <option value="R">White Rook</option><option value="B">White Bishop</option>
+            <option value="N">White Knight</option><option value="P">White Pawn</option>
+            <option value="k">Black King</option><option value="q">Black Queen</option>
+            <option value="r">Black Rook</option><option value="b">Black Bishop</option>
+            <option value="n">Black Knight</option><option value="p">Black Pawn</option>
+        </select>
+        <div id="challengeEditorBoard" style="display:grid;grid-template-columns:repeat(8,minmax(0,1fr));width:min(100%,440px);aspect-ratio:1;margin:12px auto;border:2px solid #333"></div>
+        <button class="secondary" onclick="resetChallengeEditor()">Reset to starting position</button>
+        <label>Side to move first</label>
+        <select id="challengeSide"><option value="white">White</option><option value="black">Black</option></select>
+        <label>Result the player must achieve</label>
+        <select id="challengeGoal"><option value="Draw">Draw</option><option value="Win">Win</option><option value="Lose">Lose</option></select>
+        <label>Bot difficulty</label>
+        <select id="challengeDifficulty"><option value="1">Easy</option><option value="2" selected>Normal</option><option value="3">Hard</option><option value="4">Expert</option></select>
+        <label>Challenge title (optional)</label>
+        <input id="challengeTitle" maxlength="80" placeholder="e.g. Draw against the Expert bot">
+        <button class="primary" onclick="submitDailyChallenge()">Submit Challenge to Queue</button>
+        <div id="challengeSubmitMessage"></div>
     </div>
 </section>
 
@@ -400,7 +427,7 @@ let gameUnlimited=false,isTournamentGame=false;
 let localEnPassant=null;
 let localCastlingRights={whiteKing:true,whiteQueen:true,blackKing:true,blackQueen:true};
 let gameMoves=[],customBoardTheme="classic",customPieceTheme="classic";
-let replayStates=[],replayMoves=[],replayIndex=0;
+let replayStates=[],replayMoves=[],replayIndex=0;\nlet challengeEditorBoard=null,currentDailyChallenge=null;
 let gameStartTime=0,analysisArrows=[];
 let hallSongMuted=false;
 
@@ -863,7 +890,7 @@ function applyBoardTheme(){
 function handleSquareClick(r,c){
     if(gameOver||gameMode==="spectator")return;
     const piece=board[r][c];
-    if((gameMode==="online"||gameMode==="bot")&&currentTurn!==myColor)return;
+    if((gameMode==="online"||gameMode==="bot"||gameMode==="dailyChallenge")&&currentTurn!==myColor)return;
     if(!selectedSquare){
         if(piece!=="."&&colorOf(piece)===currentTurn){
             selectedSquare=[r,c];legalSquares=getLegalMoves(r,c);renderBoard();
@@ -950,9 +977,9 @@ function chooseBotMove(){
     return bestMove||moves[0];
 }
 function botMove(){
-    if(gameOver||gameMode!=="bot"||currentTurn===myColor)return;
+    if(gameOver||(gameMode!=="bot"&&gameMode!=="dailyChallenge")||currentTurn===myColor)return;
     const move=chooseBotMove();
-    if(!move){endLocalGame(myColor,"no available moves");return}
+    if(!move){endLocalGame(gameMode==="dailyChallenge"?"draw":myColor,"no available moves");return}
     const destinations=getLegalMoves(move.from[0],move.from[1]);
     const destination=chooseSlip(move.from,move.to,destinations);
     const movingColor=currentTurn;
@@ -971,6 +998,19 @@ function botMove(){
 // LOCAL GAME RESULT
 function endLocalGame(winner,reason){
     gameOver=true;stopClock();
+    if(gameMode==="dailyChallenge"&&currentDailyChallenge){
+        const result=winner==="draw"?"Draw":(winner===myColor?"Win":"Lose");
+        const achieved=result===currentDailyChallenge.goal;
+        document.getElementById("gameStatus").textContent=(achieved?"Challenge achieved! ":"Challenge finished. ")+ "Result: "+result+" — "+reason;
+        if(achieved){
+            api("/api/daily-challenge/complete",{method:"POST",body:JSON.stringify({})})
+                .then(()=>showMessage("dailyMessage","Challenge completed!"))
+                .catch(error=>showMessage("dailyMessage",error.message,true));
+        }else{
+            showMessage("dailyMessage","You got "+result+". The challenge goal is "+currentDailyChallenge.goal+".");
+        }
+        return;
+    }
     document.getElementById("gameStatus").textContent=(winner===myColor?"You win!":"You lose!")+" — "+reason;
 }
 
@@ -1478,22 +1518,87 @@ async function loadHallOfFame(){
     }catch(error){document.getElementById("hallRating").textContent=error.message}
 }
 
-// DAILY CHALLENGE
+// DAILY CHALLENGE AND POSITION EDITOR
+function resetChallengeEditor(){
+    challengeEditorBoard=initialBoard().map(row=>row.slice());
+    renderChallengeEditor();
+}
+function renderChallengeEditor(){
+    const target=document.getElementById("challengeEditorBoard");
+    if(!target||!challengeEditorBoard)return;
+    target.innerHTML="";
+    for(let r=0;r<8;r++)for(let c=0;c<8;c++){
+        const piece=challengeEditorBoard[r][c];
+        const button=document.createElement("button");
+        button.type="button";
+        button.textContent=piece==="."?"":PIECES[piece];
+        button.setAttribute("aria-label",FILES[c]+(8-r)+": "+(piece==="."?"empty":piece));
+        button.style.cssText="border:0;border-radius:0;aspect-ratio:1;padding:0;font-size:clamp(18px,5vw,36px);background:" + ((r+c)%2===0?"#e8edf5":"#7795b5") + ";color:"+(piece===piece.toUpperCase()?"#fff":"#111")+";text-shadow:0 1px 2px #555;cursor:pointer";
+        button.onclick=()=>editChallengeSquare(r,c);
+        target.appendChild(button);
+    }
+}
+function editChallengeSquare(r,c){
+    const piece=document.getElementById("challengeEditorPiece").value;
+    challengeEditorBoard[r][c]=piece;
+    renderChallengeEditor();
+}
 async function loadDailyChallenge(){
     const container=document.getElementById("dailyChallenge");
+    const playButton=document.getElementById("playDailyChallengeButton");
+    if(!challengeEditorBoard)resetChallengeEditor();
     try{
         const data=await api("/api/daily-challenge");
-        if(!data.challenge){container.textContent="No daily challenge has been published.";return}
-        container.innerHTML=`<h3>${escapeHTML(data.challenge.title||"Daily Challenge")}</h3><p>${escapeHTML(data.challenge.description||"")}</p>`+
-            (data.completed?"<p>You have completed today's challenge.</p>":"");
+        currentDailyChallenge=data.challenge||null;
+        playButton.disabled=!currentDailyChallenge;
+        if(!data.challenge){
+            container.textContent="No challenge is active yet. Be the first to submit one!";
+        }else{
+            const names=["","Easy","Normal","Hard","Expert"];
+            container.innerHTML=`<h3>${escapeHTML(data.challenge.title||"Daily Challenge")}</h3>
+                <p>Goal: <strong>${escapeHTML(data.challenge.goal)}</strong> · Bot: <strong>${names[Number(data.challenge.difficulty)]||"Normal"}</strong></p>
+                <p>Submitted by: ${escapeHTML(data.challenge.creator_username||"A player")}</p>`+
+                (data.completed?"<p>You have completed today's challenge.</p>":"");
+        }
+        document.getElementById("dailyQueueInfo").textContent=(data.queue_count||0)+" challenge(s) waiting in the queue.";
     }catch(error){container.textContent=error.message}
 }
-async function completeDailyChallenge(){
+function startDailyChallengeGame(){
+    if(!currentDailyChallenge)return;
+    currentDailyChallenge=currentDailyChallenge;
+    gameMode="dailyChallenge";gameUnlimited=true;isTournamentGame=false;
+    botDifficulty=Number(currentDailyChallenge.difficulty||2);
+    myColor=currentDailyChallenge.side_to_move||"white";
+    botColor=myColor==="white"?"black":"white";
+    board=currentDailyChallenge.position.map(row=>row.slice());
+    currentTurn=myColor;gameOver=false;selectedSquare=null;legalSquares=[];lastMove=null;gameMoves=[];
+    localEnPassant=null;
+    localCastlingRights={whiteKing:false,whiteQueen:false,blackKing:false,blackQueen:false};
+    botTime=0;botIncrement=0;whiteTime=0;blackTime=0;gameStartTime=Date.now();
+    document.getElementById("gameTitle").textContent="Daily Challenge";
+    document.getElementById("gameOpponent").textContent="Bot — "+(["","Easy","Normal","Hard","Expert"][botDifficulty]||"Normal");
+    document.getElementById("gameChatPanel").classList.add("hidden");
+    document.getElementById("restartGameButton").classList.add("hidden");
+    document.getElementById("resignGameButton").classList.add("hidden");
+    document.getElementById("rematchButton").classList.add("hidden");
+    document.getElementById("gameStatus").textContent="Goal: "+currentDailyChallenge.goal;
+    showScreen("gameScreen");renderBoard();startClock();
+    if(currentTurn!==myColor)setTimeout(botMove,350);
+}
+async function submitDailyChallenge(){
     if(!requireLogin())return;
+    const goal=document.getElementById("challengeGoal").value;
+    const difficulty=Number(document.getElementById("challengeDifficulty").value);
+    const position=challengeEditorBoard.map(row=>row.slice());
     try{
-        await api("/api/daily-challenge/complete",{method:"POST",body:JSON.stringify({})});
-        showMessage("dailyMessage","Challenge completion recorded.");loadDailyChallenge();
-    }catch(error){showMessage("dailyMessage",error.message,true)}
+        const data=await api("/api/daily-challenge/submit",{method:"POST",body:JSON.stringify({
+            position,goal,difficulty,side_to_move:document.getElementById("challengeSide").value,
+            title:document.getElementById("challengeTitle").value.trim()
+        })});
+        showMessage("challengeSubmitMessage","Submitted! Your challenge is in the queue. There are "+data.queue_count+" waiting.");
+        document.getElementById("challengeTitle").value="";
+        loadDailyChallenge();
+    }catch(error){showMessage("challengeSubmitMessage",error.message,true)}
 }
 
 // CUSTOMISATION
