@@ -1959,6 +1959,11 @@ ACHIEVEMENT_DEFINITIONS = {
         "name": "Online Champion",
         "description": "Win 25 online games.",
         "icon": "👑"
+    },
+    "tournament_debut": {
+        "name": "Tournament Debut",
+        "description": "Play your first tournament match, win or lose.",
+        "icon": "🏅"
     }
 }
 
@@ -2160,6 +2165,12 @@ def finish_room(code, winner, reason):
         )
 
         if room.get("tournament_match_id"):
+            # Both players earn Tournament Debut after completing their first
+            # tournament match, regardless of who won.
+            for player_id in (room.get("white_id"), room.get("black_id")):
+                if player_id:
+                    unlock_player_achievement(player_id, "tournament_debut")
+
             complete_tournament_match(
                 room["tournament_match_id"],
                 winner_id
