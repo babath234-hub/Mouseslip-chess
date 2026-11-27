@@ -76,9 +76,14 @@ nav button{background:var(--panel2);border:1px solid var(--border);color:white;p
 .piece.modern{font-family:Georgia,"Times New Roman",serif}
 .piece.simple{font-family:Arial,sans-serif;font-size:.68em;font-weight:900;line-height:1;border:2px solid currentColor;border-radius:50%;width:1.15em;height:1.15em;display:flex;align-items:center;justify-content:center}
 #arrowLayer{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:4}
-#gameInfo{display:flex;justify-content:space-between;gap:10px;margin:12px 0}
-.clock{background:#242b3c;padding:12px;border-radius:8px;min-width:100px;text-align:center;font-size:22px;font-weight:bold}
-.clock.active{background:#dce9ff;color:#111827}
+#gameInfo{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin:14px 0}
+.clock{background:#182131;border:2px solid #354258;border-radius:12px;padding:12px 14px;min-width:0;text-align:center;display:flex;flex-direction:column;gap:5px;transition:border-color .15s,background .15s}
+.clock.active{background:#263b59;border-color:#8db8ff}
+.clock-label{font-size:11px;letter-spacing:1.5px;font-weight:800;color:#aab7ca}
+.clock-value{font-size:clamp(25px,5vw,34px);font-weight:800;font-variant-numeric:tabular-nums;letter-spacing:1px;color:#f5f7fb;line-height:1.2}
+.clock-turn{min-height:14px;font-size:10px;font-weight:800;letter-spacing:1.2px;color:#9fc5ff}
+.clock.low-time .clock-value{color:#ffb4a8}
+@media(max-width:420px){#gameInfo{gap:8px}.clock{padding:10px 6px}.clock-value{font-size:25px}}
 #chatMessages{max-height:180px;overflow-y:auto;background:#111725;padding:10px;border-radius:8px}
 .chat-line{padding:5px 0;border-bottom:1px solid #293146}
 #gameStatus{text-align:center;font-weight:bold;margin:12px}
@@ -393,7 +398,18 @@ header{padding:12px}.container{width:96%;margin:14px auto}
             <div><h2 id="gameTitle">Mouseslip Chess</h2><p id="gameOpponent">Opponent</p></div>
             <div><button class="secondary" onclick="showScreen('homeScreen')">Menu</button></div>
         </div>
-        <div id="gameInfo"><div class="clock" id="blackClock">--:--</div><div class="clock" id="whiteClock">--:--</div></div>
+        <div id="gameInfo">
+            <div class="clock" id="blackClock">
+                <span class="clock-label">BLACK</span>
+                <strong class="clock-value">--:--</strong>
+                <span class="clock-turn"></span>
+            </div>
+            <div class="clock" id="whiteClock">
+                <span class="clock-label">WHITE</span>
+                <strong class="clock-value">--:--</strong>
+                <span class="clock-turn"></span>
+            </div>
+        </div>
         <div id="gameStatus">Your turn</div>
         <div id="boardArea"><div id="board"></div><svg id="arrowLayer"></svg></div>
         <div class="row">
@@ -1078,10 +1094,16 @@ function formatTime(seconds){
 }
 function updateClocks(){
     const unlimited=gameUnlimited||(gameMode==="bot"&&botTime===0);
-    document.getElementById("whiteClock").textContent=unlimited?"∞":formatTime(whiteTime);
-    document.getElementById("blackClock").textContent=unlimited?"∞":formatTime(blackTime);
-    document.getElementById("whiteClock").classList.toggle("active",currentTurn==="white");
-    document.getElementById("blackClock").classList.toggle("active",currentTurn==="black");
+    const whiteClock=document.getElementById("whiteClock");
+    const blackClock=document.getElementById("blackClock");
+    whiteClock.querySelector(".clock-value").textContent=unlimited?"∞":formatTime(whiteTime);
+    blackClock.querySelector(".clock-value").textContent=unlimited?"∞":formatTime(blackTime);
+    whiteClock.classList.toggle("active",currentTurn==="white");
+    blackClock.classList.toggle("active",currentTurn==="black");
+    whiteClock.classList.toggle("low-time",!unlimited&&whiteTime<=20);
+    blackClock.classList.toggle("low-time",!unlimited&&blackTime<=20);
+    whiteClock.querySelector(".clock-turn").textContent=currentTurn==="white"?"TO MOVE":"";
+    blackClock.querySelector(".clock-turn").textContent=currentTurn==="black"?"TO MOVE":"";
 }
 function startClock(){
     stopClock();
