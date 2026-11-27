@@ -269,7 +269,12 @@ header{padding:12px}.container{width:96%;margin:14px auto}
 <section id="profileScreen" class="screen">
     <div class="panel"><h2>Player Profile</h2><div id="profileDetails"><p>Loading profile...</p></div></div>
     <div class="panel"><h2>Statistics</h2><div id="profileStats" class="stat-grid"></div></div>
-    <div class="panel"><h2>Achievements</h2><div id="profileAchievements" class="button-grid"></div></div>
+    <div class="panel">
+        <h2>Achievements & Killer Awards</h2>
+        <p>Earn these awards by capturing 5 enemy kings with the corresponding piece.</p>
+        <div id="profileAchievements" class="button-grid"></div>
+        <div id="killerAwards" class="button-grid"></div>
+    </div>
     <div class="panel"><h2>Match History</h2><div id="profileHistory"></div></div>
     <div class="panel">
         <h2>Customise Your Game</h2>
@@ -1445,6 +1450,22 @@ async function loadMyProfile(){
             <strong>${escapeHTML(item.name||item.achievement_name||"Achievement")}</strong></div>
         `).join("")||"<p>No achievements yet.</p>";
 
+        const killerNames=[
+            ["rook","Killer Rook","♜"],["knight","Killer Knight","♞"],
+            ["bishop","Killer Bishop","♝"],["queen","Killer Queen","♛"],
+            ["pawn","Killer Pawn","♟"],["king","Killer King","♚"]
+        ];
+        const killerProgress=data.killer_progress||{};
+        document.getElementById("killerAwards").innerHTML=killerNames.map(([piece,name,symbol])=>{
+            const count=Math.min(5,Number(killerProgress[piece]||0));
+            const unlocked=count>=5;
+            return `<div class="badge-card">
+                <div class="badge-icon">${symbol}</div>
+                <strong>${name}</strong>
+                <p>${unlocked?"Unlocked!":count+" / 5 enemy kings captured"}</p>
+                <progress max="5" value="${count}" style="width:100%"></progress>
+            </div>`;
+        }).join("");
         const history=data.history||[];
         document.getElementById("profileHistory").innerHTML=history.map(match=>`
             <div class="match-card">
@@ -1506,9 +1527,21 @@ function renderReplay(){
         boardElement.appendChild(square);
     }
     const move=replayMoves[replayIndex-1];
-    document.getElementById("replayMoveLabel").textContent=replayIndex===0?"Starting position":
-        "Move "+replayIndex+": "+(move?.from||"")+" → "+(move?.to||"")+
-        (move?.slipped?" (mouseslip)":"");
+    const detail=document.getElementById("replayMoveLabel");
+    if(replayIndex===0){
+        detail.textContent="Starting position";
+    }else{
+        const pieceNames={r:"Rook",n:"Knight",b:"Bishop",q:"Queen",k:"King",p:"Pawn"};
+        const pieceName=pieceNames[String(move?.piece||"").toLowerCase()]||"Piece";
+        const actual=move?.to||"?", intended=move?.intended_to||actual;
+        const parts=[`Move ${replayIndex}: ${pieceName} ${move?.from||"?"} → ${actual}`];
+        if(move?.slipped)parts.push(`Mouseslip: intended ${intended}, landed on ${actual}`);
+        if(move?.captured_piece&&move.captured_piece!=="."){
+            parts.push("Captured: "+(pieceNames[String(move.captured_piece).toLowerCase()]||"piece"));
+        }
+        if(move?.promotion)parts.push("Promoted to: "+(pieceNames[String(move.promotion).toLowerCase()]||"piece"));
+        detail.textContent=parts.join(" · ");
+    }
 }
 function replayFirst(){replayIndex=0;renderReplay()}
 function replayBack(){replayIndex=Math.max(0,replayIndex-1);renderReplay()}
