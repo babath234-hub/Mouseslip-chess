@@ -2115,7 +2115,7 @@ def finish_room(code, winner, reason):
                     "p_match_id": match_id,
                     "p_white": room["white_id"],
                     "p_black": room["black_id"],
-                    "p_winner_side": winner,
+                    "p_winner_side": {"white": "w", "black": "b"}.get(winner),
                     "p_reason": reason,
                     "p_rated": room["rated"],
                     "p_moves": room["moves"]
