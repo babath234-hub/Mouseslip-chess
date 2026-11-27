@@ -73,6 +73,8 @@ nav button{background:var(--panel2);border:1px solid var(--border);color:white;p
 .piece{z-index:2;line-height:1;display:inline-block}
 .piece.white-piece{color:#fff;text-shadow:0 1px 2px #111,-1px -1px 0 #222,1px -1px 0 #222,-1px 1px 0 #222,1px 1px 0 #222}
 .piece.black-piece{color:#151515;text-shadow:0 1px 2px #fff8}
+.piece.modern{font-family:Georgia,"Times New Roman",serif}
+.piece.simple{font-family:Arial,sans-serif;font-size:.68em;font-weight:900;line-height:1;border:2px solid currentColor;border-radius:50%;width:1.15em;height:1.15em;display:flex;align-items:center;justify-content:center}
 #arrowLayer{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:4}
 #gameInfo{display:flex;justify-content:space-between;gap:10px;margin:12px 0}
 .clock{background:#242b3c;padding:12px;border-radius:8px;min-width:100px;text-align:center;font-size:22px;font-weight:bold}
@@ -324,7 +326,7 @@ header{padding:12px}.container{width:96%;margin:14px auto}
     <div class="panel">
         <h2>How to Play Mouseslip Chess</h2>
         <h3>The objective</h3><p>Capture your opponent's king to win.</p>
-        <h3>Mouseslips</h3><p>When you choose a destination, your move may slip to another eligible legal destination. Captures can also be affected.</p>
+        <h3>Mouseslips</h3><p>Your move always slips to a nearby eligible legal destination whenever one exists. If there is no eligible alternative, your intended move is played. Captures can also be affected.</p>
         <h3>Knights</h3><p>Knights have a special mouseslip rule: alternative destinations must follow the same rank direction as the intended move.</p>
         <h3>Promotion</h3><p>Pawns reaching the final rank can promote to a queen, rook, bishop or knight.</p>
         <h3>Castling</h3><p>Castling is available when the relevant rights and squares allow it.</p>
@@ -722,7 +724,8 @@ function renderBoard(){
             const piece=board[r][c];
             if(piece!=="."){
                 const pieceElement=document.createElement("span");
-                pieceElement.className="piece "+(colorOf(piece)==="white"?"white-piece":"black-piece");pieceElement.textContent=PIECES[piece]||piece;
+                pieceElement.className="piece "+(colorOf(piece)==="white"?"white-piece":"black-piece")+" "+(customPieceTheme||"classic");
+                pieceElement.textContent=customPieceTheme==="simple"?piece.toUpperCase():(PIECES[piece]||piece);
                 square.appendChild(pieceElement);
             }
             square.addEventListener("click",()=>handleSquareClick(r,c));
@@ -1025,7 +1028,7 @@ socket.on("move_made",data=>{
     }
     selectedSquare=null;legalSquares=[];
     renderBoard();updateClocks();
-    document.getElementById("gameStatus").textContent=currentTurn===myColor?"Your turn":"Opponent's turn";
+    document.getElementById("gameStatus").textContent=gameMode==="spectator"?(currentTurn==="white"?"White":"Black")+" to move":currentTurn===myColor?"Your turn":"Opponent's turn";
 });
 socket.on("move_error",data=>{
     document.getElementById("gameStatus").textContent=data.error||"Move rejected.";
