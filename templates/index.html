@@ -628,7 +628,7 @@ function chooseSlip(start,intended,destinations){
         alternatives=alternatives.filter(move=>Math.sign(move[0]-start[0])===intendedDirection);
     }
     if(!alternatives.length)return intended;
-    if(Math.random()<.35)return alternatives[Math.floor(Math.random()*alternatives.length)];
+    if(Math.random()<.70)return alternatives[Math.floor(Math.random()*alternatives.length)];
     return intended;
 }
 
