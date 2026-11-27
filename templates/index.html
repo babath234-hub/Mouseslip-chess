@@ -827,6 +827,13 @@ function applyLocalMove(start,end,promotion="q"){
     window.lastIntendedSquare=null;
     return captured;
 }
+function dailyChallengeReachedFiftyMoveRule(){
+    if(gameMode!=="dailyChallenge"||gameMoves.length<100)return false;
+    return gameMoves.slice(-100).every(move=>
+        String(move.piece||"").toLowerCase()!=="p"&&
+        (!move.captured||move.captured===".")
+    );
+}
 function squareName(r,c){return FILES[c]+(8-r)}
 function requestedPromotion(){
     const answer=prompt("Choose promotion: Q = Queen, R = Rook, B = Bishop, N = Knight","q");
@@ -957,6 +964,10 @@ function handleSquareClick(r,c){
         endLocalGame(movingColor,"king captured");
         return;
     }
+    if(dailyChallengeReachedFiftyMoveRule()){
+        endLocalGame("draw","50-move rule — 50 moves by each side without a pawn move or capture");
+        return;
+    }
     if(currentTurn!==myColor)setTimeout(botMove,350);
 }
 
@@ -1048,7 +1059,11 @@ function chooseBotMove(){
 function botMove(){
     if(gameOver||(gameMode!=="bot"&&gameMode!=="dailyChallenge")||currentTurn===myColor)return;
     const move=chooseBotMove();
-    if(!move){endLocalGame(gameMode==="dailyChallenge"?"draw":myColor,"no available moves");return}
+    if(!move){
+        if(gameMode==="dailyChallenge")endLocalGame(myColor,"the bot has no legal moves");
+        else endLocalGame(myColor,"no available moves");
+        return;
+    }
     const destinations=getLegalMoves(move.from[0],move.from[1]);
     const destination=chooseSlip(move.from,move.to,destinations);
     const movingColor=currentTurn;
@@ -1062,8 +1077,8 @@ function botMove(){
         endLocalGame(movingColor,"king captured");
         return;
     }
-    if(gameMode==="dailyChallenge"&&!allMovesFor(currentTurn).length){
-        endLocalGame("draw","no legal moves");
+    if(dailyChallengeReachedFiftyMoveRule()){
+        endLocalGame("draw","50-move rule — 50 moves by each side without a pawn move or capture");
     }
 }
 
@@ -1686,7 +1701,7 @@ function startDailyChallengeGame(){
     document.getElementById("gameStatus").textContent="Goal: "+currentDailyChallenge.goal;
     showScreen("gameScreen");renderBoard();startClock();
     if(!allMovesFor(myColor).length){
-        endLocalGame("draw","no legal moves in the starting position");
+        endLocalGame(botColor,"you have no legal moves in the starting position");
         return;
     }
     if(currentTurn!==myColor)setTimeout(botMove,350);
