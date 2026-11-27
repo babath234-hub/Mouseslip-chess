@@ -129,6 +129,7 @@ header{padding:12px}.container{width:96%;margin:14px auto}
     <div class="panel">
         <h1>Mouseslip Chess</h1>
         <p>Chess with a twist. Choose your move, but watch out: your mouse might slip!</p>
+        <button class="secondary" id="musicVolumeButton" onclick="toggleHallSongVolume()" aria-pressed="true">🔊 Sound: ON</button>
         <div class="button-grid">
             <button class="menu-button" onclick="showScreen('botSetupScreen')">Play Against Bot<span>Choose a difficulty and time control</span></button>
             <button class="menu-button" onclick="showScreen('onlineSetupScreen')">Play Online<span>Find a random opponent</span></button>
@@ -138,7 +139,7 @@ header{padding:12px}.container{width:96%;margin:14px auto}
             <button class="menu-button" onclick="showScreen('profileScreen');loadMyProfile()">My Profile<span>Statistics, achievements and history</span></button>
             <button class="menu-button" onclick="showScreen('friendsScreen');loadFriends()">Friends<span>Manage your friend requests</span></button>
             <button class="menu-button" onclick="showScreen('communityScreen');loadComments()">Community<span>Talk with other players</span></button>
-            <button class="menu-button" onclick="showScreen('hallScreen');loadHallOfFame()">Hall of Fame<span>All-time records</span></button>
+            <button class="menu-button" onclick="openHallOfFame()">Hall of Fame<span>All-time records</span></button>
             <button class="menu-button" onclick="showScreen('dailyScreen');loadDailyChallenge()">Daily Challenge<span>See today's challenge</span></button>
             <button class="menu-button" onclick="showScreen('rulesScreen')">How to Play<span>Learn the rules</span></button>
         </div>
@@ -307,6 +308,10 @@ header{padding:12px}.container{width:96%;margin:14px auto}
 <section id="hallScreen" class="screen">
     <div class="panel">
         <h2>Hall of Fame</h2>
+        <button class="secondary" id="hallVolumeButton" onclick="toggleHallSongVolume()" aria-pressed="true">🔊 Sound: ON</button>
+        <div id="hallSongPlayer" style="width:min(560px,100%);margin:16px auto;aspect-ratio:16/9;background:#111725;border-radius:10px;overflow:hidden">
+            <p style="padding:18px">The Hall of Fame song will play when you open this section.</p>
+        </div>
         <h3>Highest Rated Players</h3><div id="hallRating"></div>
         <h3>Longest Win Streaks</h3><div id="hallStreaks"></div>
         <h3>Most Games Played</h3><div id="hallGames"></div>
@@ -399,6 +404,41 @@ let localCastlingRights={whiteKing:true,whiteQueen:true,blackKing:true,blackQuee
 let gameMoves=[],customBoardTheme="classic",customPieceTheme="classic";
 let replayStates=[],replayMoves=[],replayIndex=0;
 let gameStartTime=0,analysisArrows=[];
+let hallSongMuted=false;
+
+function updateHallVolumeButtons(){
+    const label=hallSongMuted?"🔇 Sound: OFF":"🔊 Sound: ON";
+    ["musicVolumeButton","hallVolumeButton"].forEach(id=>{
+        const button=document.getElementById(id);
+        if(button){button.textContent=label;button.setAttribute("aria-pressed",String(!hallSongMuted));}
+    });
+}
+function toggleHallSongVolume(){
+    hallSongMuted=!hallSongMuted;
+    updateHallVolumeButtons();
+    const frame=document.querySelector("#hallSongPlayer iframe");
+    if(frame&&frame.contentWindow){
+        frame.contentWindow.postMessage(JSON.stringify({event:"command",func:hallSongMuted?"mute":"unMute",args:[]}),"*");
+    }
+}
+function startHallSong(){
+    const player=document.getElementById("hallSongPlayer");
+    if(!player)return;
+    const frame=document.createElement("iframe");
+    frame.title="The Script - Hall of Fame (Official Video)";
+    frame.width="100%";frame.height="100%";
+    frame.style.border="0";
+    frame.allow="autoplay; encrypted-media; picture-in-picture; web-share";
+    frame.allowFullscreen=true;
+    frame.src="https://www.youtube.com/embed/mk48xRzuNvA?autoplay=1&start=75&controls=1&enablejsapi=1&playsinline=1"+(hallSongMuted?"&mute=1":"&mute=0");
+    player.replaceChildren(frame);
+}
+function openHallOfFame(){
+    showScreen("hallScreen");
+    startHallSong();
+    loadHallOfFame();
+}
+updateHallVolumeButtons();
 
 /* SCREEN NAVIGATION */
 let screenHistory=[];
