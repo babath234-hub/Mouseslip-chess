@@ -1887,9 +1887,10 @@ def new_room(
         "increment": max(0, int(increment)),
         "white_time": max(1, int(seconds)),
         "black_time": max(1, int(seconds)),
-        "last": now,
+        "last": time.monotonic(),
         "started": now,
-        "active": True,
+        # A private lobby's clock must not run until the second player joins.
+        "active": bool(black),
         "over": False,
         "rated": bool(rated),
         "unlimited": int(seconds) == 0,
@@ -2169,12 +2170,25 @@ def finish_room(code, winner, reason):
 # CLOCKS
 # ============================================================
 
+def advance_room_clock(room, now=None):
+    """Apply elapsed server time to the side whose turn is active."""
+    if room["over"] or not room["active"] or room["unlimited"]:
+        return False
+
+    now = time.monotonic() if now is None else now
+    elapsed = max(0.0, now - room["last"])
+    room["last"] = now
+    clock_key = room["turn"] + "_time"
+    room[clock_key] = max(0.0, room[clock_key] - elapsed)
+    return room[clock_key] <= 0
+
+
 def clock_worker():
     while True:
         socketio.sleep(0.25)
 
         with lock:
-            now = time.time()
+            now = time.monotonic()
 
             for code, room in list(rooms.items()):
                 if room["over"] or not room["active"]:
@@ -2184,21 +2198,9 @@ def clock_worker():
                     room["last"] = now
                     continue
 
-                elapsed = now - room["last"]
-                room["last"] = now
-
-                if room["turn"] == "white":
-                    room["white_time"] -= elapsed
-
-                    if room["white_time"] <= 0:
-                        room["white_time"] = 0
-                        finish_room(code, "black", "time")
-                else:
-                    room["black_time"] -= elapsed
-
-                    if room["black_time"] <= 0:
-                        room["black_time"] = 0
-                        finish_room(code, "white", "time")
+                if advance_room_clock(room, now):
+                    losing_side = room["turn"]
+                    finish_room(code, opponent(losing_side), "time")
 
                 if (
                     not room["over"]
@@ -2701,7 +2703,8 @@ def join_private_lobby(data):
 
         room["black"] = request.sid
         room["black_id"] = player["id"]
-        room["last"] = time.time()
+        room["last"] = time.monotonic()
+        room["active"] = True
 
         sid_room[request.sid] = code
         join_room(code)
@@ -2856,6 +2859,15 @@ def online_move(data):
             else None
         )
 
+        # Reconcile the authoritative clock before accepting a move. This
+        # prevents a move arriving between worker ticks from reviving an
+        # already-expired clock.
+        if advance_room_clock(room):
+            losing_side = room["turn"]
+            finish_room(code, opponent(losing_side), "time")
+            emit("move_error", {"error": "Your clock has expired."})
+            return
+
         if not color or color != room["turn"]:
             emit("move_error", {
                 "error": "It is not your turn."
@@ -2913,7 +2925,7 @@ def online_move(data):
             else:
                 room["black_time"] += room["increment"]
 
-        room["last"] = time.time()
+        room["last"] = time.monotonic()
 
         if color == "white":
             room["white_time"] = max(0, room["white_time"])
