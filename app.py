@@ -617,7 +617,6 @@ def player_profile(username):
             supabase.table("player_achievements")
             .select("*")
             .eq("player_id", player["id"])
-            .order("unlocked_at", desc=True)
             .execute()
         )
         achievement_rows = achievements_result.data or []
