@@ -1569,7 +1569,6 @@ async function loadDailyChallenge(){
 }
 function startDailyChallengeGame(){
     if(!currentDailyChallenge)return;
-    currentDailyChallenge=currentDailyChallenge;
     gameMode="dailyChallenge";gameUnlimited=true;isTournamentGame=false;
     botDifficulty=Number(currentDailyChallenge.difficulty||2);
     myColor=currentDailyChallenge.side_to_move||"white";
@@ -1587,6 +1586,10 @@ function startDailyChallengeGame(){
     document.getElementById("rematchButton").classList.add("hidden");
     document.getElementById("gameStatus").textContent="Goal: "+currentDailyChallenge.goal;
     showScreen("gameScreen");renderBoard();startClock();
+    if(!allMovesFor(myColor).length){
+        endLocalGame("draw","no legal moves in the starting position");
+        return;
+    }
     if(currentTurn!==myColor)setTimeout(botMove,350);
 }
 async function submitDailyChallenge(){
