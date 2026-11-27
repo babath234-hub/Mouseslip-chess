@@ -620,6 +620,27 @@ def player_profile(username):
             .order("unlocked_at", desc=True)
             .execute()
         )
+        achievement_rows = achievements_result.data or []
+        achievement_ids = [
+            item.get("achievement_id") for item in achievement_rows
+            if item.get("achievement_id")
+        ]
+        if achievement_ids:
+            catalog_result = (
+                supabase.table("achievements")
+                .select("*")
+                .in_("id", achievement_ids)
+                .execute()
+            )
+            catalog = {
+                str(item["id"]): item
+                for item in (catalog_result.data or [])
+            }
+            for item in achievement_rows:
+                detail = catalog.get(str(item.get("achievement_id")), {})
+                item["name"] = detail.get("name") or item.get("name") or "Achievement"
+                item["description"] = detail.get("description") or item.get("description") or ""
+                item["icon"] = detail.get("icon") or item.get("icon") or "🏅"
         history_result = (
             supabase.table("match_history")
             .select("*")
@@ -643,7 +664,7 @@ def player_profile(username):
             "profile": profile,
             "player": profile,
             "stats": stats,
-            "achievements": achievements_result.data or [],
+            "achievements": achievement_rows,
             "history": history_result.data or []
         })
 
@@ -2543,6 +2564,9 @@ def join_tournament_match(data):
             return
         if match.get("status") == "completed":
             emit("match_error", {"error": "This tournament match is complete."})
+            return
+        if match.get("game_match_id"):
+            emit("match_error", {"error": "This tournament match already has a game in progress."})
             return
 
         with tournament_lock:
