@@ -2,7 +2,7 @@ importScripts("https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js
 importScripts("https://www.gstatic.com/firebasejs/10.14.1/firebase-messaging-compat.js");
 
 firebase.initializeApp({
-    apiKey: "PASTE_FIREBASE_WEB_API_KEY_HERE",
+    apiKey: "AIzaSyB2LpWJEMfIRtb45InBjZvLcH4gW-eFZiY",
     authDomain: "mouseslip-chess.firebaseapp.com",
     projectId: "mouseslip-chess",
     storageBucket: "mouseslip-chess.firebasestorage.app",
