@@ -176,9 +176,9 @@ header{padding:12px}.container{width:96%;margin:14px auto}
         <label>Your colour</label>
         <select id="botColor"><option value="white">White</option><option value="black">Black</option><option value="random">Random</option></select>
         <label>Time control</label>
-        <select id="botSeconds"><option value="0">Unlimited</option><option value="60">1 minute</option><option value="180">3 minutes</option><option value="300" selected>5 minutes</option><option value="600">10 minutes</option><option value="900">15 minutes</option></select>
+        <select id="botSeconds"><option value="0">Unlimited</option><option value="60">1 minute</option><option value="180">3 minutes</option><option value="300" selected>5 minutes</option><option value="600">10 minutes</option><option value="900">15 minutes</option><option value="1800">30 minutes</option></select>
         <label>Increment</label>
-        <select id="botIncrement"><option value="0">0 seconds</option><option value="1">1 second</option><option value="2">2 seconds</option><option value="5">5 seconds</option><option value="10">10 seconds</option></select>
+        <select id="botIncrement"><option value="0">0 seconds</option><option value="1">1 second</option><option value="2">2 seconds</option><option value="3">3 seconds</option><option value="5">5 seconds</option><option value="10">10 seconds</option></select>
         <button class="primary" onclick="startBotGame()">Start Game</button>
         <button class="secondary" onclick="showScreen('homeScreen')">Back</button>
     </div>
@@ -189,9 +189,9 @@ header{padding:12px}.container{width:96%;margin:14px auto}
         <h2>Play Online</h2>
         <p>Find a random opponent. Your rating changes by 10 points for a rated win or loss.</p>
         <label>Time control</label>
-        <select id="onlineSeconds"><option value="60">1 minute</option><option value="180">3 minutes</option><option value="300" selected>5 minutes</option><option value="600">10 minutes</option><option value="900">15 minutes</option></select>
+        <select id="onlineSeconds"><option value="60">1 minute</option><option value="180">3 minutes</option><option value="300" selected>5 minutes</option><option value="600">10 minutes</option><option value="900">15 minutes</option><option value="1800">30 minutes</option></select>
         <label>Increment</label>
-        <select id="onlineIncrement"><option value="0">0 seconds</option><option value="1">1 second</option><option value="2">2 seconds</option><option value="5">5 seconds</option></select>
+        <select id="onlineIncrement"><option value="0">0 seconds</option><option value="1">1 second</option><option value="2">2 seconds</option><option value="3">3 seconds</option><option value="5">5 seconds</option><option value="10">10 seconds</option></select>
         <button class="primary" onclick="findOnlineMatch()">Find Opponent</button>
         <div id="queueStatus"></div>
         <button class="danger hidden" id="cancelQueueButton" onclick="cancelQueue()">Cancel Search</button>
@@ -201,7 +201,7 @@ header{padding:12px}.container{width:96%;margin:14px auto}
         <label>Time control</label>
         <select id="privateSeconds"><option value="0">Unlimited</option><option value="180">3 minutes</option><option value="300" selected>5 minutes</option><option value="600">10 minutes</option></select>
         <label>Increment</label>
-        <select id="privateIncrement"><option value="0">0 seconds</option><option value="2">2 seconds</option><option value="5">5 seconds</option></select>
+        <select id="privateIncrement"><option value="0">0 seconds</option><option value="1">1 second</option><option value="2">2 seconds</option><option value="3">3 seconds</option><option value="5">5 seconds</option><option value="10">10 seconds</option></select>
         <label>Rated game?</label>
         <select id="privateRated"><option value="false">Unrated</option><option value="true">Rated</option></select>
         <button class="primary" onclick="createPrivateLobby()">Create Private Lobby</button>
