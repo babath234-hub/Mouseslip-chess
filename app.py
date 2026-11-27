@@ -1964,6 +1964,11 @@ ACHIEVEMENT_DEFINITIONS = {
         "name": "Tournament Debut",
         "description": "Play your first tournament match, win or lose.",
         "icon": "🏅"
+    },
+    "rating_rush": {
+        "name": "Rating Rush",
+        "description": "Finish a tournament with at least 30 more rating points than when you entered.",
+        "icon": "⚡"
     }
 }
 
@@ -3330,7 +3335,8 @@ def join_tournament():
 
         supabase.table("tournament_entries").insert({
             "tournament_id": tournament["id"],
-            "player_id": player["id"]
+            "player_id": player["id"],
+            "rating_before": int(player.get("rating", 1000) or 1000)
         }).execute()
 
         entries = tournament_entries(tournament["id"])
@@ -3452,6 +3458,35 @@ def unsubscribe_push():
 # TOURNAMENT MATCH COMPLETION
 # ============================================================
 
+def award_tournament_rating_rush(tournament_id, player_id):
+    """Award Rating Rush if the player's rating rose by at least 30 since joining."""
+    try:
+        entry_result = (
+            supabase.table("tournament_entries")
+            .select("rating_before")
+            .eq("tournament_id", tournament_id)
+            .eq("player_id", player_id)
+            .limit(1)
+            .execute()
+        )
+        if not entry_result.data:
+            return
+
+        rating_before = entry_result.data[0].get("rating_before")
+        player = get_player_by_id(player_id)
+        if rating_before is None or not player:
+            return
+
+        rating_gain = int(player.get("rating", 0) or 0) - int(rating_before)
+        if rating_gain >= 30:
+            unlock_player_achievement(player_id, "rating_rush")
+    except Exception:
+        app.logger.exception(
+            "Could not evaluate Rating Rush for player %s.",
+            player_id
+        )
+
+
 def complete_tournament_match(match_id, winner_id):
     with tournament_lock:
         result = (
@@ -3496,6 +3531,8 @@ def complete_tournament_match(match_id, winner_id):
             "player_id", loser_id
         ).execute()
 
+        award_tournament_rating_rush(match["tournament_id"], loser_id)
+
         round_matches = (
             supabase.table("tournament_matches")
             .select("*")
@@ -3526,6 +3563,9 @@ def complete_tournament_match(match_id, winner_id):
             }).eq(
                 "id", match["tournament_id"]
             ).execute()
+            award_tournament_rating_rush(
+                match["tournament_id"], winners[0]
+            )
             return
 
         next_round = match["round_number"] + 1
