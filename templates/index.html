@@ -171,8 +171,8 @@ header{padding:12px}.container{width:96%;margin:14px auto}
 <section id="botSetupScreen" class="screen">
     <div class="panel">
         <h2>Play Against Bot</h2>
-        <label>Bot difficulty</label>
-        <select id="botDifficulty"><option value="1">Easy</option><option value="2">Normal</option><option value="3">Hard</option><option value="4">Expert</option></select>
+        <label>Bot difficulty: <strong id="botDifficultyLabel">2 — Normal</strong></label>
+        <input id="botDifficulty" type="range" min="1" max="4" step="1" value="2" oninput="document.getElementById('botDifficultyLabel').textContent=this.value+' — '+(['','Easy','Normal','Hard','Expert'][Number(this.value)])">
         <label>Your colour</label>
         <select id="botColor"><option value="white">White</option><option value="black">Black</option><option value="random">Random</option></select>
         <label>Time control</label>
@@ -348,6 +348,8 @@ let gameOver=false,queueSearching=false,privateRoomCode=null;
 let botDifficulty=2,botColor="white",botTime=300,botIncrement=0;
 let whiteTime=300,blackTime=300,clockInterval=null,lastMove=null;
 let gameUnlimited=false,isTournamentGame=false;
+let localEnPassant=null;
+let localCastlingRights={whiteKing:true,whiteQueen:true,blackKing:true,blackQueen:true};
 let gameMoves=[],customBoardTheme="classic",customPieceTheme="classic";
 let gameStartTime=0,analysisArrows=[];
 
@@ -527,6 +529,7 @@ function startBotGame(){
     if(botColor==="random")botColor=Math.random()<.5?"white":"black";
     myColor=botColor;board=initialBoard();currentTurn="white";gameOver=false;
     selectedSquare=null;legalSquares=[];lastMove=null;gameMoves=[];
+    localEnPassant=null;localCastlingRights={whiteKing:true,whiteQueen:true,blackKing:true,blackQueen:true};
     whiteTime=botTime;blackTime=botTime;gameStartTime=Date.now();
     document.getElementById("gameTitle").textContent="Play Against Bot";
     document.getElementById("gameOpponent").textContent="Bot — Difficulty "+botDifficulty;
@@ -572,6 +575,7 @@ function getLegalMoves(r,c){
         for(const dc of [-1,1]){
             const nr=r+direction,nc=c+dc;
             if(inBounds(nr,nc)&&board[nr][nc]!=="."&&colorOf(board[nr][nc])!==color)moves.push([nr,nc]);
+            if(localEnPassant&&localEnPassant[0]===nr&&localEnPassant[1]===nc)moves.push([nr,nc]);
         }
     }
     if(type==="n"){
@@ -580,9 +584,11 @@ function getLegalMoves(r,c){
     if(type==="k"){
         for(const [dr,dc] of [[-1,-1],[-1,0],[-1,1],[0,-1],[0,1],[1,-1],[1,0],[1,1]])add(r+dr,c+dc);
         const home=color==="white"?7:0,king=color==="white"?"K":"k",rook=color==="white"?"R":"r";
+        const kingSide=color==="white"?"whiteKing":"blackKing";
+        const queenSide=color==="white"?"whiteQueen":"blackQueen";
         if(r===home&&c===4&&piece===king){
-            if(board[home][7]===rook&&board[home][5]==="."&&board[home][6]===".")moves.push([home,6]);
-            if(board[home][0]===rook&&board[home][1]==="."&&board[home][2]==="."&&board[home][3]===".")moves.push([home,2]);
+            if(localCastlingRights[kingSide]&&board[home][7]===rook&&board[home][5]==="."&&board[home][6]===".")moves.push([home,6]);
+            if(localCastlingRights[queenSide]&&board[home][0]===rook&&board[home][1]==="."&&board[home][2]==="."&&board[home][3]===".")moves.push([home,2]);
         }
     }
     const directions=[];
@@ -602,12 +608,33 @@ function getLegalMoves(r,c){
 function applyLocalMove(start,end,promotion="q"){
     const [r,c]=start,[nr,nc]=end,piece=board[r][c];
     if(!piece||piece===".")return;
-    const type=piece.toLowerCase(),color=colorOf(piece),captured=board[nr][nc];
+    const type=piece.toLowerCase(),color=colorOf(piece);
+    let captured=board[nr][nc];
+    const oldEnPassant=localEnPassant;
+    localEnPassant=null;
     board[r][c]=".";
+    if(type==="p"&&oldEnPassant&&nr===oldEnPassant[0]&&nc===oldEnPassant[1]&&c!==nc&&captured==="."){
+        captured=board[r][nc];board[r][nc]=".";
+    }
     if(type==="k"&&Math.abs(nc-c)===2){
         if(nc===6){board[r][5]=board[r][7];board[r][7]="."}
         else{board[r][3]=board[r][0];board[r][0]="."}
     }
+    if(type==="p"&&Math.abs(nr-r)===2)localEnPassant=[(nr+r)/2,c];
+    if(type==="k"){
+        localCastlingRights[color==="white"?"whiteKing":"blackKing"]=false;
+        localCastlingRights[color==="white"?"whiteQueen":"blackQueen"]=false;
+    }
+    if(type==="r"){
+        if(color==="white"&&r===7&&c===0)localCastlingRights.whiteQueen=false;
+        if(color==="white"&&r===7&&c===7)localCastlingRights.whiteKing=false;
+        if(color==="black"&&r===0&&c===0)localCastlingRights.blackQueen=false;
+        if(color==="black"&&r===0&&c===7)localCastlingRights.blackKing=false;
+    }
+    if(nr===7&&nc===0)localCastlingRights.whiteQueen=false;
+    if(nr===7&&nc===7)localCastlingRights.whiteKing=false;
+    if(nr===0&&nc===0)localCastlingRights.blackQueen=false;
+    if(nr===0&&nc===7)localCastlingRights.blackKing=false;
     if(type==="p"&&(nr===0||nr===7)){
         const chosen=promotion||"q";
         board[nr][nc]=color==="white"?chosen.toUpperCase():chosen.toLowerCase();
@@ -617,7 +644,16 @@ function applyLocalMove(start,end,promotion="q"){
     return captured;
 }
 function squareName(r,c){return FILES[c]+(8-r)}
-function randomPromotion(){return ["q","r","b","n"][Math.floor(Math.random()*4)]}
+function requestedPromotion(){
+    const answer=prompt("Choose promotion: Q = Queen, R = Rook, B = Bishop, N = Knight","q");
+    const chosen=String(answer||"q").trim().toLowerCase();
+    return ["q","r","b","n"].includes(chosen)?chosen:"q";
+}
+function slipPromotion(intended="q"){
+    const alternatives=["q","r","b","n"].filter(piece=>piece!==intended);
+    return alternatives[Math.floor(Math.random()*alternatives.length)];
+}
+function randomPromotion(){return slipPromotion(["q","r","b","n"][Math.floor(Math.random()*4)])}
 
 // MOUSESLIP
 function chooseSlip(start,intended,destinations){
@@ -700,7 +736,7 @@ function handleSquareClick(r,c){
     const slipped=chooseSlip(start,intended,legalSquares);
     selectedSquare=null;legalSquares=[];
     if(gameMode==="online"){
-        const promotion=board[start[0]][start[1]].toLowerCase()==="p"&&(slipped[0]===0||slipped[0]===7)?randomPromotion():"q";
+        const promotion=board[start[0]][start[1]].toLowerCase()==="p"&&(slipped[0]===0||slipped[0]===7)?requestedPromotion():"q";
         socket.emit("online_move",{
             from:squareName(start[0],start[1]),
             to:squareName(slipped[0],slipped[1]),
@@ -710,7 +746,8 @@ function handleSquareClick(r,c){
         return;
     }
     const movingColor=currentTurn;
-    const captured=applyLocalMove(start,slipped,randomPromotion());
+    const promotion=board[start[0]][start[1]].toLowerCase()==="p"&&(slipped[0]===0||slipped[0]===7)?slipPromotion(requestedPromotion()):"q";
+    const captured=applyLocalMove(start,slipped,promotion);
     if(captured&&captured.toLowerCase()==="k"){endLocalGame(movingColor,"king captured");return}
     currentTurn=movingColor==="white"?"black":"white";
     if(movingColor===myColor&&botIncrement){
@@ -1155,7 +1192,7 @@ async function completeDailyChallenge(){
     if(!requireLogin())return;
     try{
         await api("/api/daily-challenge/complete",{method:"POST",body:JSON.stringify({})});
-        showMessage("dailyMessage","Challenge completion recorded.");
+        showMessage("dailyMessage","Challenge completion recorded.");loadDailyChallenge();
     }catch(error){showMessage("dailyMessage",error.message,true)}
 }
 
