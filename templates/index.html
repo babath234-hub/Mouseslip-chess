@@ -427,7 +427,8 @@ let gameUnlimited=false,isTournamentGame=false;
 let localEnPassant=null;
 let localCastlingRights={whiteKing:true,whiteQueen:true,blackKing:true,blackQueen:true};
 let gameMoves=[],customBoardTheme="classic",customPieceTheme="classic";
-let replayStates=[],replayMoves=[],replayIndex=0;\nlet challengeEditorBoard=null,currentDailyChallenge=null;
+let replayStates=[],replayMoves=[],replayIndex=0;
+let challengeEditorBoard=null,currentDailyChallenge=null;
 let gameStartTime=0,analysisArrows=[];
 let hallSongMuted=false;
 
@@ -992,6 +993,9 @@ function botMove(){
     if(captured&&captured.toLowerCase()==="k"){
         endLocalGame(movingColor,"king captured");
         return;
+    }
+    if(gameMode==="dailyChallenge"&&!allMovesFor(currentTurn).length){
+        endLocalGame("draw","no legal moves");
     }
 }
 
