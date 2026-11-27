@@ -958,24 +958,70 @@ function evaluateBoard(){
     }
     return score;
 }
+function evaluateBotPosition(){
+    const values={p:100,n:320,b:335,r:500,q:900,k:20000};
+    let score=0,whiteKing=false,blackKing=false;
+    for(let r=0;r<8;r++)for(let c=0;c<8;c++){
+        const piece=board[r][c];if(piece===".")continue;
+        const type=piece.toLowerCase();
+        if(type==="k"){if(colorOf(piece)==="white")whiteKing=true;else blackKing=true}
+        const value=values[type]||0;
+        score+=colorOf(piece)==="white"?value:-value;
+        if("bnqp".includes(type)){
+            const centre=(3.5-Math.abs(3.5-r))+(3.5-Math.abs(3.5-c));
+            score+=(colorOf(piece)==="white"?1:-1)*centre*(type==="p"?2:3);
+        }
+    }
+    if(!whiteKing)return -100000;
+    if(!blackKing)return 100000;
+    return score;
+}
+function searchBotPosition(depth,alpha,beta){
+    if(depth<=0)return evaluateBotPosition();
+    const movingSide=currentTurn,moves=allMovesFor(currentTurn);
+    if(!moves.length)return evaluateBotPosition();
+    const maximizing=movingSide==="white";
+    let best=maximizing?-Infinity:Infinity;
+    for(const move of moves){
+        const savedBoard=copyBoard(board),savedEp=localEnPassant;
+        const savedRights={...localCastlingRights},savedLastMove=lastMove;
+        const savedMoveCount=gameMoves.length,savedIntended=window.lastIntendedSquare;
+        applyLocalMove(move.from,move.to,"q");
+        currentTurn=movingSide==="white"?"black":"white";
+        const score=searchBotPosition(depth-1,alpha,beta);
+        currentTurn=movingSide;board=savedBoard;localEnPassant=savedEp;
+        localCastlingRights=savedRights;lastMove=savedLastMove;
+        gameMoves.length=savedMoveCount;window.lastIntendedSquare=savedIntended;
+        if(maximizing){best=Math.max(best,score);alpha=Math.max(alpha,best)}
+        else{best=Math.min(best,score);beta=Math.min(beta,best)}
+        if(beta<=alpha)break;
+    }
+    return best;
+}
 function chooseBotMove(){
     const moves=allMovesFor(currentTurn);
     if(!moves.length)return null;
-    const randomness={1:1,2:.30,3:.10,4:.02}[botDifficulty]??.30;
-    if(Math.random()<randomness)return moves[Math.floor(Math.random()*moves.length)];
-    let bestMove=null,bestScore=currentTurn==="white"?-Infinity:Infinity;
+    const depthByLevel={1:0,2:1,3:2,4:3};
+    const depth=depthByLevel[Number(botDifficulty)]??1;
+    if(depth===0)return moves[Math.floor(Math.random()*moves.length)];
+    const maximizing=currentTurn==="white";
+    let bestScore=maximizing?-Infinity:Infinity,bestMoves=[];
     for(const move of moves){
-        const oldBoard=copyBoard(board),oldEp=localEnPassant;
-        const oldRights={...localCastlingRights},oldLastMove=lastMove;
+        const movingSide=currentTurn;
+        const savedBoard=copyBoard(board),savedEp=localEnPassant;
+        const savedRights={...localCastlingRights},savedLastMove=lastMove;
+        const savedMoveCount=gameMoves.length,savedIntended=window.lastIntendedSquare;
         applyLocalMove(move.from,move.to,"q");
-        const score=evaluateBoard();
-        board=oldBoard;localEnPassant=oldEp;localCastlingRights=oldRights;
-        gameMoves.pop();lastMove=oldLastMove;
-        if((currentTurn==="white"&&score>bestScore)||(currentTurn==="black"&&score<bestScore)){
-            bestScore=score;bestMove=move;
-        }
+        currentTurn=movingSide==="white"?"black":"white";
+        const score=searchBotPosition(depth-1,-Infinity,Infinity);
+        currentTurn=movingSide;board=savedBoard;localEnPassant=savedEp;
+        localCastlingRights=savedRights;lastMove=savedLastMove;
+        gameMoves.length=savedMoveCount;window.lastIntendedSquare=savedIntended;
+        const better=maximizing?score>bestScore:score<bestScore;
+        if(better){bestScore=score;bestMoves=[move]}
+        else if(score===bestScore)bestMoves.push(move);
     }
-    return bestMove||moves[0];
+    return bestMoves[Math.floor(Math.random()*bestMoves.length)]||moves[0];
 }
 function botMove(){
     if(gameOver||(gameMode!=="bot"&&gameMode!=="dailyChallenge")||currentTurn===myColor)return;
