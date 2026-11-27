@@ -628,8 +628,8 @@ function chooseSlip(start,intended,destinations){
         alternatives=alternatives.filter(move=>Math.sign(move[0]-start[0])===intendedDirection);
     }
     if(!alternatives.length)return intended;
-    if(Math.random()<.70)return alternatives[Math.floor(Math.random()*alternatives.length)];
-    return intended;
+    // Mouseslip is guaranteed whenever an eligible alternative exists.
+    return alternatives[Math.floor(Math.random()*alternatives.length)];
 }
 
 // BOARD RENDERING
