@@ -1243,32 +1243,45 @@ window.enableTournamentNotifications = async function(){
             throw new Error("This browser does not support web notifications.");
         }
         if (Notification.permission === "denied") {
-            throw new Error("Notifications are blocked in your browser settings.");
+            throw new Error("Notifications are blocked in your browser settings. Allow them for this site in Chrome settings, then try again.");
         }
+
         const permission = await Notification.requestPermission();
         if (permission !== "granted") throw new Error("Notification permission was not granted.");
 
-        const registration = await navigator.serviceWorker.register("/firebase-messaging-sw.js");
+        // Register the worker at the site root and wait until the browser has activated it.
+        const registration = await navigator.serviceWorker.register("/firebase-messaging-sw.js", {
+            scope: "/",
+            updateViaCache: "none"
+        });
+        await navigator.serviceWorker.ready;
+
+        const activeRegistration = await navigator.serviceWorker.getRegistration("/");
+        if (!activeRegistration || !activeRegistration.active) {
+            throw new Error("The notification service worker has not activated yet. Refresh the page and try again.");
+        }
+
         const token = await getToken(browserMessaging, {
             vapidKey: firebaseVapidKey,
-            serviceWorkerRegistration: registration
+            serviceWorkerRegistration: activeRegistration
         });
-        if (!token) throw new Error("Could not obtain a notification token. Try again.");
-        await fetch("/api/push/subscribe", {
+        if (!token) throw new Error("The browser did not create a notification token. Please try again.");
+
+        const response = await fetch("/api/push/subscribe", {
             method: "POST",
             credentials: "same-origin",
             headers: {"Content-Type":"application/json"},
             body: JSON.stringify({token})
-        }).then(async response => {
-            const data = await response.json().catch(()=>({}));
-            if (!response.ok) throw new Error(data.error || "Could not save notification settings.");
-            return data;
         });
+        const data = await response.json().catch(()=>({}));
+        if (!response.ok) throw new Error(data.error || "Could not save notification settings.");
+
         status.textContent = "Notifications enabled on this device.";
         button.textContent = "Notifications Enabled";
         button.disabled = true;
     } catch (error) {
-        if (status) status.textContent = error.message;
+        console.error("Notification setup failed:", error);
+        if (status) status.textContent = error.message || "Notification setup failed. Check the browser console for details.";
     }
 };
 </script>
