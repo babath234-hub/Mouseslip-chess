@@ -46,6 +46,7 @@ rooms = {}
 sid_room = {}
 waiting_players = []
 connected_sids = set()
+tournament_waiting = {}
 
 tournament_lock = threading.RLock()
 _firebase_app = None
@@ -1844,6 +1845,7 @@ def room_snapshot(room):
         "increment": room["increment"],
         "rated": room["rated"],
         "unlimited": room["unlimited"],
+        "tournament": bool(room.get("tournament_match_id")),
         "over": room["over"],
         "moves": room["moves"]
     }
@@ -2095,6 +2097,7 @@ def find_match(data):
                     "seconds": seconds,
                     "increment": increment,
                     "rated": True,
+                    "unlimited": room["unlimited"],
                     "opponent": other_player["username"]
                 },
                 to=white_sid
@@ -2108,6 +2111,7 @@ def find_match(data):
                     "seconds": seconds,
                     "increment": increment,
                     "rated": True,
+                    "unlimited": room["unlimited"],
                     "opponent": player["username"]
                 },
                 to=black_sid
@@ -2230,6 +2234,7 @@ def join_private_lobby(data):
                 "seconds": room["seconds"],
                 "increment": room["increment"],
                 "rated": room["rated"],
+                "unlimited": room["unlimited"],
                 "opponent": player["username"]
             },
             to=room["white"]
@@ -2241,6 +2246,7 @@ def join_private_lobby(data):
             "seconds": room["seconds"],
             "increment": room["increment"],
             "rated": room["rated"],
+            "unlimited": room["unlimited"],
             "opponent": (
                 white_player["username"]
                 if white_player else "Opponent"
@@ -2252,6 +2258,90 @@ def join_private_lobby(data):
             room_snapshot(room),
             room=code
         )
+
+
+# ============================================================
+# TOURNAMENT MATCH CONNECTION
+# ============================================================
+
+@socketio.on("join_tournament_match")
+def join_tournament_match(data):
+    player = current_player()
+    if not player:
+        emit("match_error", {"error": "Log in before joining a tournament match."})
+        return
+
+    match_id = str((data or {}).get("match_id", "")).strip()
+    if not match_id:
+        emit("match_error", {"error": "Tournament match ID is missing."})
+        return
+
+    try:
+        result = (
+            supabase.table("tournament_matches")
+            .select("*")
+            .eq("id", match_id)
+            .limit(1)
+            .execute()
+        )
+        if not result.data:
+            emit("match_error", {"error": "Tournament match not found."})
+            return
+        match = result.data[0]
+        if player["id"] not in (match["player1_id"], match["player2_id"]):
+            emit("match_error", {"error": "You are not part of this tournament match."})
+            return
+        if match.get("status") == "completed":
+            emit("match_error", {"error": "This tournament match is complete."})
+            return
+
+        with tournament_lock:
+            waiting = tournament_waiting.setdefault(match_id, {})
+            waiting[player["id"]] = request.sid
+            required = (match["player1_id"], match["player2_id"])
+            if not all(player_id in waiting for player_id in required):
+                emit("tournament_waiting", {
+                    "message": "Waiting for your tournament opponent to open the match."
+                })
+                return
+
+            white_sid = waiting[match["player1_id"]]
+            black_sid = waiting[match["player2_id"]]
+            white_player = get_player_by_id(match["player1_id"])
+            black_player = get_player_by_id(match["player2_id"])
+            if not white_player or not black_player:
+                emit("match_error", {"error": "A tournament player account could not be loaded."})
+                return
+
+            room = new_room(
+                white_sid, black_sid, 300, 0, False,
+                match["player1_id"], match["player2_id"],
+                match["tournament_id"], match_id
+            )
+            join_room(room["code"], sid=white_sid)
+            join_room(room["code"], sid=black_sid)
+            supabase.table("tournament_matches").update({
+                "status": "playing",
+                "game_match_id": room["match_id"]
+            }).eq("id", match_id).execute()
+            tournament_waiting.pop(match_id, None)
+
+            socketio.emit("match_found", {
+                "room": room["code"], "color": "white",
+                "seconds": 300, "increment": 0, "rated": False,
+                "unlimited": False, "tournament": True,
+                "opponent": black_player["username"]
+            }, to=white_sid)
+            socketio.emit("match_found", {
+                "room": room["code"], "color": "black",
+                "seconds": 300, "increment": 0, "rated": False,
+                "unlimited": False, "tournament": True,
+                "opponent": white_player["username"]
+            }, to=black_sid)
+            socketio.emit("game_started", room_snapshot(room), room=room["code"])
+    except Exception:
+        app.logger.exception("Could not start tournament match.")
+        emit("match_error", {"error": "Could not start the tournament match. Please try again."})
 
 
 # ============================================================
@@ -2415,6 +2505,12 @@ def disconnected():
             item for item in waiting_players
             if item["sid"] != request.sid
         ]
+        for match_id, waiting in list(tournament_waiting.items()):
+            for player_id, sid in list(waiting.items()):
+                if sid == request.sid:
+                    waiting.pop(player_id, None)
+            if not waiting:
+                tournament_waiting.pop(match_id, None)
 
         code = sid_room.get(request.sid)
         room = rooms.get(code) if code else None
