@@ -3,6 +3,7 @@ name: Validate Mouseslip Chess
 on:
   push:
     branches:
+      - main
       - comprehensive-audit-2026-11-27
   pull_request:
 
