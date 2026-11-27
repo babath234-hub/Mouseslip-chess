@@ -3715,8 +3715,8 @@ def submit_daily_challenge():
         flat = [piece for row in position for piece in row]
         if flat.count("K") != 1 or flat.count("k") != 1:
             return jsonify({"error": "A position must contain exactly one white king and one black king."}), 400
-        if goal not in ("Win", "Draw", "Lose"):
-            return jsonify({"error": "Choose Win, Draw or Lose."}), 400
+        if goal not in ("Win", "Lose"):
+            return jsonify({"error": "Choose Win or Lose."}), 400
         if difficulty not in (1, 2, 3, 4):
             return jsonify({"error": "Choose a valid bot difficulty."}), 400
         if side_to_move not in ("white", "black"):
