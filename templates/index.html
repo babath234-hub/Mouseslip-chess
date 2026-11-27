@@ -254,6 +254,16 @@ header{padding:12px}.container{width:96%;margin:14px auto}
     </div>
 </section>
 
+<section id="publicProfileScreen" class="screen">
+    <div class="panel">
+        <h2 id="publicProfileTitle">Player Profile</h2>
+        <div id="publicProfileDetails">Loading profile...</div>
+        <div id="publicProfileStats" class="stat-grid"></div>
+        <h3>Achievements</h3><div id="publicProfileAchievements" class="button-grid"></div>
+        <h3>Recent Games</h3><div id="publicProfileHistory"></div>
+    </div>
+</section>
+
 <section id="profileScreen" class="screen">
     <div class="panel"><h2>Player Profile</h2><div id="profileDetails"><p>Loading profile...</p></div></div>
     <div class="panel"><h2>Statistics</h2><div id="profileStats" class="stat-grid"></div></div>
@@ -319,6 +329,13 @@ header{padding:12px}.container{width:96%;margin:14px auto}
         <label>Write a comment</label><textarea id="commentInput" maxlength="500"></textarea>
         <button class="primary" onclick="postComment()">Post Comment</button>
         <div id="commentMessage"></div>
+    </div>
+    <div class="panel">
+        <h2>Private Feedback</h2>
+        <p>Send feedback privately to the Mouseslip Chess admin.</p>
+        <textarea id="feedbackInput" maxlength="2000" placeholder="Your feedback..."></textarea>
+        <button class="secondary" onclick="sendFeedback()">Send Private Feedback</button>
+        <div id="feedbackMessage"></div>
     </div>
 </section>
 
@@ -539,14 +556,51 @@ async function loadLeaderboard(){
         const data=await api("/api/leaderboard"+(search?"?q="+encodeURIComponent(search):""));
         const players=data.players||data.leaderboard||[];
         document.getElementById("leaderboardRows").innerHTML=players.map((player,index)=>`
-            <tr><td>${player.rank||index+1}</td><td>${escapeHTML(player.username)}</td><td>${player.rating}</td></tr>
+            <tr><td>${player.rank||index+1}</td><td><button class="secondary" onclick="viewPublicProfile('${escapeHTML(player.username)}')">${escapeHTML(player.username)}</button></td><td>${player.rating}</td></tr>
         `).join("")||"<tr><td colspan='3'>No players found.</td></tr>";
     }catch(error){
         document.getElementById("leaderboardRows").innerHTML=`<tr><td colspan="3">${escapeHTML(error.message)}</td></tr>`;
     }
 }
 async function loadSeasonalLeaderboard(){
-    document.getElementById("seasonalRows").innerHTML="<p>Seasonal rankings are not available yet.</p>";
+    const container=document.getElementById("seasonalRows");
+    container.textContent="Loading seasonal rankings...";
+    try{
+        const data=await api("/api/seasonal-leaderboard");
+        const players=data.players||[];
+        container.innerHTML=players.map((player,index)=>`
+            <div class="match-card">${player.rank||index+1}. <strong>${escapeHTML(player.username)}</strong> — ${Number(player.monthly_wins||0)} wins · Rating ${Number(player.rating||0)}</div>
+        `).join("")||"<p>No seasonal games recorded yet.</p>";
+    }catch(error){container.textContent=error.message}
+}
+
+// PUBLIC PLAYER PROFILES
+async function viewPublicProfile(username){
+    try{
+        const data=await api("/api/profile/"+encodeURIComponent(username));
+        const player=data.profile||data.player||{},stats=data.stats||player.stats||{};
+        document.getElementById("publicProfileTitle").textContent=player.username||username;
+        document.getElementById("publicProfileDetails").textContent="Rating: "+Number(player.rating||0)+" · Global rank: "+(player.rank||"—");
+        const fields=[
+            ["Games played",stats.games_played||0],["Wins",stats.wins||0],
+            ["Losses",stats.losses||0],["Current win streak",stats.current_win_streak||0],
+            ["Longest win streak",stats.longest_win_streak||0],
+            ["Mouseslips",stats.mouseslips||0],["Normal moves",stats.normal_moves||0],
+            ["Slipped captures",stats.slipped_captures||0]
+        ];
+        document.getElementById("publicProfileStats").innerHTML=fields.map(([label,value])=>`
+            <div class="stat-card">${escapeHTML(label)}<strong>${escapeHTML(value)}</strong></div>
+        `).join("");
+        document.getElementById("publicProfileAchievements").innerHTML=(data.achievements||[]).map(item=>`
+            <div class="badge-card"><strong>${escapeHTML(item.name||item.achievement_name||"Achievement")}</strong></div>
+        `).join("")||"<p>No achievements yet.</p>";
+        document.getElementById("publicProfileHistory").innerHTML=(data.history||[]).slice(0,20).map(match=>`
+            <div class="match-card"><strong>${escapeHTML(match.winner_side||"Unknown")} won</strong>
+            <small>${escapeHTML(match.created_at||"")}</small>
+            ${match.match_id?`<button class="secondary" onclick="viewReplay('${escapeHTML(match.match_id)}')">View Replay</button>`:""}</div>
+        `).join("")||"<p>No completed games yet.</p>";
+        showScreen("publicProfileScreen");
+    }catch(error){alert("Could not load profile: "+error.message)}
 }
 
 // BOT GAME
@@ -1402,6 +1456,17 @@ async function postComment(){
         document.getElementById("commentInput").value="";
         showMessage("commentMessage","Comment posted.");loadComments();
     }catch(error){showMessage("commentMessage",error.message,true)}
+}
+
+async function sendFeedback(){
+    if(!requireLogin())return;
+    const message=document.getElementById("feedbackInput").value.trim();
+    if(!message)return;
+    try{
+        await api("/api/feedback",{method:"POST",body:JSON.stringify({message})});
+        document.getElementById("feedbackInput").value="";
+        showMessage("feedbackMessage","Private feedback sent.");
+    }catch(error){showMessage("feedbackMessage",error.message,true)}
 }
 
 // GAME OF THE DAY
