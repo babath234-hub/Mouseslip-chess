@@ -68,7 +68,9 @@ nav button{background:var(--panel2);border:1px solid var(--border);color:white;p
 .square.legal::after{content:"";position:absolute;width:23%;height:23%;border-radius:50%;background:#253c4b88}
 .square.capture::after{width:78%;height:78%;border:5px solid #c03939aa;background:transparent}
 .square.lastmove{background-image:linear-gradient(#f7d35a66,#f7d35a66)}
-.piece{z-index:2;line-height:1;text-shadow:0 1px 2px #0005}
+.piece{z-index:2;line-height:1;display:inline-block}
+.piece.white-piece{color:#fff;text-shadow:0 1px 2px #111,-1px -1px 0 #222,1px -1px 0 #222,-1px 1px 0 #222,1px 1px 0 #222}
+.piece.black-piece{color:#151515;text-shadow:0 1px 2px #fff8}
 #arrowLayer{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:4}
 #gameInfo{display:flex;justify-content:space-between;gap:10px;margin:12px 0}
 .clock{background:#242b3c;padding:12px;border-radius:8px;min-width:100px;text-align:center;font-size:22px;font-weight:bold}
@@ -650,7 +652,7 @@ function renderBoard(){
             const piece=board[r][c];
             if(piece!=="."){
                 const pieceElement=document.createElement("span");
-                pieceElement.className="piece";pieceElement.textContent=PIECES[piece]||piece;
+                pieceElement.className="piece "+(colorOf(piece)==="white"?"white-piece":"black-piece");pieceElement.textContent=PIECES[piece]||piece;
                 square.appendChild(pieceElement);
             }
             square.addEventListener("click",()=>handleSquareClick(r,c));
@@ -782,8 +784,9 @@ function formatTime(seconds){
     return minutes+":"+String(remainder).padStart(2,"0");
 }
 function updateClocks(){
-    document.getElementById("whiteClock").textContent=formatTime(whiteTime);
-    document.getElementById("blackClock").textContent=formatTime(blackTime);
+    const unlimitedBot=gameMode==="bot"&&botTime===0;
+    document.getElementById("whiteClock").textContent=unlimitedBot?"∞":formatTime(whiteTime);
+    document.getElementById("blackClock").textContent=unlimitedBot?"∞":formatTime(blackTime);
     document.getElementById("whiteClock").classList.toggle("active",currentTurn==="white");
     document.getElementById("blackClock").classList.toggle("active",currentTurn==="black");
 }
@@ -793,7 +796,7 @@ function startClock(){
     updateClocks();
     clockInterval=setInterval(()=>{
         if(gameOver)return;
-        if(gameMode==="bot"){
+        if(gameMode==="bot"&&botTime>0){
             if(currentTurn==="white")whiteTime-=1;else blackTime-=1;
             if(whiteTime<=0){whiteTime=0;endLocalGame("black","time")}
             if(blackTime<=0){blackTime=0;endLocalGame("white","time")}
