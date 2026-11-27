@@ -3494,7 +3494,6 @@ def game_of_the_day():
         result = (
             supabase.table("game_of_the_day")
             .select("*")
-            .order("created_at", desc=True)
             .limit(1)
             .execute()
         )
