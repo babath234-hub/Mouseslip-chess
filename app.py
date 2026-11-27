@@ -3061,14 +3061,9 @@ def start_tournament_match(match_id):
                 "error": "This match is already complete."
             }), 409
 
-        if match["status"] == "waiting":
+        if match["status"] not in ("ready", "playing"):
             return jsonify({
                 "error": "This round is not ready."
-            }), 409
-
-        if match.get("game_match_id"):
-            return jsonify({
-                "error": "This match already has a game."
             }), 409
 
         opponent_id = (
@@ -3086,11 +3081,9 @@ def start_tournament_match(match_id):
 
         return jsonify({
             "success": True,
-            "message": (
-                "Both tournament players must connect "
-                "through the online game system."
-            ),
-            "opponent": opponent_player["username"]
+            "opponent": opponent_player["username"],
+            "match_id": match_id,
+            "status": match["status"]
         })
 
     except Exception:
