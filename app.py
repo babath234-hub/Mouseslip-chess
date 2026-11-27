@@ -1,4 +1,3 @@
-
 import os
 import re
 import time
@@ -17,8 +16,8 @@ from werkzeug.security import generate_password_hash, check_password_hash
 from supabase import create_client
 
 # ============================================================
-# MOUSESLIP CHESS
-# COMPLETE BACKEND REPLACEMENT — PART 1
+# MOUSESLIP CHESS — COMPLETE BACKEND
+# PART 1 OF 3: SETUP, ACCOUNTS, PROFILES, COMMUNITY
 # ============================================================
 
 logging.basicConfig(level=logging.INFO)
@@ -164,6 +163,51 @@ def get_player_stats(player_id):
         "current_win_streak": 0,
         "longest_win_streak": 0
     }
+
+
+def get_player_move_stats(player_id):
+    result = (
+        supabase.table("player_move_stats")
+        .select("*")
+        .eq("player_id", player_id)
+        .limit(1)
+        .execute()
+    )
+
+    stats = result.data[0] if result.data else {}
+
+    normal_moves = int(stats.get("normal_moves", 0) or 0)
+    mouseslips = int(stats.get("mouseslips", 0) or 0)
+
+    return {
+        "normal_moves": normal_moves,
+        "normal_captures": int(
+            stats.get("normal_captures", 0) or 0
+        ),
+        "mouseslips": mouseslips,
+        "slipped_captures": int(
+            stats.get("slipped_captures", 0) or 0
+        ),
+        "wins_with_mouseslip": int(
+            stats.get("wins_with_mouseslip", 0) or 0
+        ),
+        "losses_in_games_with_mouseslip": int(
+            stats.get("losses_in_games_with_mouseslip", 0) or 0
+        ),
+        "max_mouseslips_in_game": int(
+            stats.get("max_mouseslips_in_game", 0) or 0
+        ),
+        "games_with_mouseslip": int(
+            stats.get("games_with_mouseslip", 0) or 0
+        ),
+        "total_moves": normal_moves + mouseslips
+    }
+
+
+def get_combined_player_stats(player_id):
+    stats = get_player_stats(player_id)
+    stats.update(get_player_move_stats(player_id))
+    return stats
 
 
 def utc_now():
@@ -380,7 +424,7 @@ def player_profile(username):
             }), 404
 
         player = result.data[0]
-        stats = get_player_stats(player["id"])
+        stats = get_combined_player_stats(player["id"])
 
         all_players = (
             supabase.table("players")
@@ -422,7 +466,7 @@ def my_stats():
         return jsonify({
             "username": player["username"],
             "rating": player["rating"],
-            "stats": get_player_stats(player["id"])
+            "stats": get_combined_player_stats(player["id"])
         })
 
     except Exception:
@@ -1080,17 +1124,10 @@ def hall_of_fame():
 
 
 # ============================================================
-# PART 2 CONTINUES BELOW THIS LINE
+# PART 2 STARTS BELOW
 # ============================================================
-
 # ============================================================
-# MOUSESLIP CHESS
-# COMPLETE BACKEND REPLACEMENT — PART 2
-# Chess engine, online play, tournaments and game results
-# ============================================================
-
-# ============================================================
-# CHESS BOARD HELPERS
+# CHESS ENGINE
 # ============================================================
 
 FILES = "abcdefgh"
@@ -1152,10 +1189,6 @@ def is_enemy(board, r, c, color):
     piece = get_piece(board, r, c)
     return piece != "." and piece_color(piece) != color
 
-
-# ============================================================
-# CHESS MOVE GENERATION
-# ============================================================
 
 KNIGHT_STEPS = [
     (-2, -1), (-2, 1),
@@ -1239,14 +1272,15 @@ def pseudo_moves(board, r, c, rights=None, en_passant=None):
 
         if rights:
             row = 7 if color == "white" else 0
-            enemy = opponent(color)
 
             if r == row and c == 4:
+                rook = "R" if color == "white" else "r"
+
                 if rights.get(color + "_kingside"):
                     if (
                         board[row][5] == "."
                         and board[row][6] == "."
-                        and board[row][7] in ("R" if color == "white" else "r",)
+                        and board[row][7] == rook
                     ):
                         moves.append((row, 6))
 
@@ -1255,7 +1289,7 @@ def pseudo_moves(board, r, c, rights=None, en_passant=None):
                         board[row][1] == "."
                         and board[row][2] == "."
                         and board[row][3] == "."
-                        and board[row][0] in ("R" if color == "white" else "r",)
+                        and board[row][0] == rook
                     ):
                         moves.append((row, 2))
 
@@ -1309,11 +1343,6 @@ def update_castling_rights(rights, piece, start, end):
                 rights["black_queenside"] = False
             if (r, c) == (0, 7):
                 rights["black_kingside"] = False
-
-    captured = None
-
-    if inside(nr, nc):
-        captured = piece if False else None
 
     if (nr, nc) == (7, 0):
         rights["white_queenside"] = False
@@ -1388,7 +1417,18 @@ def legal_destinations(board, r, c, rights=None, en_passant=None):
     )
 
 
-def make_move(room, start, end, promotion="q"):
+# ============================================================
+# MAKE MOVE — RECORDS INTENDED AND ACTUAL DESTINATIONS
+# ============================================================
+
+def make_move(
+    room,
+    start,
+    end,
+    promotion="q",
+    player_id=None,
+    intended_end=None
+):
     board = room["board"]
 
     r, c = start
@@ -1412,15 +1452,34 @@ def make_move(room, start, end, promotion="q"):
     if end not in destinations:
         raise ValueError("Illegal destination.")
 
-    old_board = copy_board(board)
-    captured = board[nr][nc]
+    if intended_end is None:
+        intended_end = end
 
-    new_board, new_ep, captured = apply_move(
+    if intended_end not in destinations:
+        raise ValueError("Your intended destination is not legal.")
+
+    old_en_passant = room.get("en_passant")
+
+    # Correctly detect normal captures and en passant captures.
+    captured_piece = board[nr][nc]
+
+    if (
+        piece.lower() == "p"
+        and old_en_passant == (nr, nc)
+        and c != nc
+        and captured_piece == "."
+    ):
+        captured_piece = board[r][nc]
+
+    # The server determines whether the move slipped.
+    slipped = intended_end != end
+
+    new_board, new_ep, _ = apply_move(
         board,
         start,
         end,
         promotion,
-        room.get("en_passant")
+        old_en_passant
     )
 
     room["rights"] = update_castling_rights(
@@ -1437,9 +1496,20 @@ def make_move(room, start, end, promotion="q"):
     move = {
         "from": square_name(r, c),
         "to": square_name(nr, nc),
+        "intended_to": square_name(
+            intended_end[0],
+            intended_end[1]
+        ),
         "piece": piece,
-        "captured": captured,
-        "promotion": promotion if piece.lower() == "p" and nr in (0, 7) else None,
+        "player_id": player_id,
+        "slipped": slipped,
+        "captured": captured_piece != ".",
+        "captured_piece": captured_piece,
+        "promotion": (
+            promotion
+            if piece.lower() == "p" and nr in (0, 7)
+            else None
+        ),
         "fen_board": new_board
     }
 
@@ -1627,22 +1697,16 @@ def clock_worker():
 
                 if room["turn"] == "white":
                     room["white_time"] -= elapsed
+
                     if room["white_time"] <= 0:
                         room["white_time"] = 0
-                        finish_room(
-                            code,
-                            "black",
-                            "time"
-                        )
+                        finish_room(code, "black", "time")
                 else:
                     room["black_time"] -= elapsed
+
                     if room["black_time"] <= 0:
                         room["black_time"] = 0
-                        finish_room(
-                            code,
-                            "white",
-                            "time"
-                        )
+                        finish_room(code, "white", "time")
 
 
 # ============================================================
@@ -1677,8 +1741,12 @@ def find_match(data):
 
     data = data or {}
 
-    seconds = int(data.get("seconds", 300))
-    increment = int(data.get("increment", 0))
+    try:
+        seconds = int(data.get("seconds", 300))
+        increment = int(data.get("increment", 0))
+    except (TypeError, ValueError):
+        emit("match_error", {"error": "Invalid time control."})
+        return
 
     if seconds < 0 or seconds > 7200:
         emit("match_error", {"error": "Invalid time control."})
@@ -1808,8 +1876,13 @@ def create_private_lobby(data):
     data = data or {}
 
     rated = bool(data.get("rated", False))
-    seconds = int(data.get("seconds", 300))
-    increment = int(data.get("increment", 0))
+
+    try:
+        seconds = int(data.get("seconds", 300))
+        increment = int(data.get("increment", 0))
+    except (TypeError, ValueError):
+        emit("match_error", {"error": "Invalid time control."})
+        return
 
     if seconds < 0 or seconds > 7200 or increment < 0 or increment > 60:
         emit("match_error", {
@@ -1914,7 +1987,7 @@ def join_private_lobby(data):
 
 
 # ============================================================
-# ONLINE MOVES
+# ONLINE MOVES — TRACKS INTENDED AND ACTUAL DESTINATIONS
 # ============================================================
 
 @socketio.on("online_move")
@@ -1946,7 +2019,11 @@ def online_move(data):
         start = parse_square(data.get("from"))
         end = parse_square(data.get("to"))
 
-        if not start or not end:
+        intended_end = parse_square(
+            data.get("intended_to", data.get("to"))
+        )
+
+        if not start or not end or not intended_end:
             emit("move_error", {
                 "error": "Invalid square."
             })
@@ -1967,12 +2044,16 @@ def online_move(data):
         if promotion not in PROMOTIONS:
             promotion = "q"
 
+        player_id = room.get(color + "_id")
+
         try:
             move = make_move(
                 room,
                 start,
                 end,
-                promotion
+                promotion,
+                player_id,
+                intended_end
             )
         except ValueError as exc:
             emit("move_error", {
@@ -1993,7 +2074,7 @@ def online_move(data):
         else:
             room["black_time"] = max(0, room["black_time"])
 
-        if move["captured"] in ("k", "K"):
+        if move["captured_piece"] in ("k", "K"):
             finish_room(
                 code,
                 color,
@@ -2009,7 +2090,7 @@ def online_move(data):
                     "from": move["from"],
                     "to": move["to"],
                     "piece": move["piece"],
-                    "captured": move["captured"],
+                    "captured": move["captured_piece"],
                     "promotion": move["promotion"]
                 },
                 "turn": room["turn"],
@@ -2135,6 +2216,9 @@ def send_chat(data):
 
 
 # ============================================================
+# PART 3 STARTS BELOW
+# ============================================================
+# ============================================================
 # TOURNAMENT HELPERS
 # ============================================================
 
@@ -2235,12 +2319,6 @@ def start_tournament(tournament):
 
         random.shuffle(player_ids)
 
-        supabase.table("tournament_entries").update({
-            "seed": 1
-        }).eq(
-            "tournament_id", tournament["id"]
-        ).execute()
-
         for index, entry in enumerate(entries):
             supabase.table("tournament_entries").update({
                 "seed": index + 1
@@ -2283,7 +2361,6 @@ def tournament_info():
         )
 
         names = {}
-
         player_ids = set()
 
         for entry in entries:
@@ -2292,11 +2369,13 @@ def tournament_info():
         for match in matches_result.data or []:
             if match.get("player1_id"):
                 player_ids.add(match["player1_id"])
+
             if match.get("player2_id"):
                 player_ids.add(match["player2_id"])
 
         for player_id in player_ids:
             player = get_player_by_id(player_id)
+
             if player:
                 names[player_id] = player["username"]
 
@@ -2304,7 +2383,10 @@ def tournament_info():
             "tournament": tournament,
             "players": [
                 {
-                    "username": names.get(item["player_id"], "Player"),
+                    "username": names.get(
+                        item["player_id"],
+                        "Player"
+                    ),
                     "seed": item.get("seed"),
                     "eliminated_round": item.get("eliminated_round")
                 }
@@ -2433,6 +2515,7 @@ def complete_tournament_match(match_id, winner_id):
 
         matches = round_matches.data or []
 
+        # Wait until every match in this round is completed.
         if not matches or any(
             item["status"] != "completed"
             for item in matches
@@ -2460,9 +2543,7 @@ def complete_tournament_match(match_id, winner_id):
             return
 
         create_tournament_round(
-            {
-                "id": match["tournament_id"]
-            },
+            {"id": match["tournament_id"]},
             winners,
             next_round
         )
@@ -2647,7 +2728,7 @@ def game_of_the_day():
 
 
 # ============================================================
-# STARTUP
+# HEALTH CHECK AND STARTUP
 # ============================================================
 
 @app.route("/health")
