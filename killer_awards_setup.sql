@@ -24,3 +24,16 @@ create table if not exists public.player_achievement_unlocks (
 
 alter table public.player_achievement_unlocks enable row level security;
 grant all on public.player_achievement_unlocks to service_role;
+
+
+-- Stores each player's rating when they enter a tournament, so Rating Rush
+-- can compare it with their rating when they are eliminated or win.
+alter table public.tournament_entries
+    add column if not exists rating_before integer;
+
+-- Backfill entries that already exist when this update is installed.
+update public.tournament_entries as entry
+set rating_before = player.rating
+from public.players as player
+where entry.player_id = player.id
+  and entry.rating_before is null;
