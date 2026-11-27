@@ -608,15 +608,38 @@ def player_profile(username):
                 break
             rank += 1
 
+        achievements_result = (
+            supabase.table("player_achievements")
+            .select("*")
+            .eq("player_id", player["id"])
+            .order("unlocked_at", desc=True)
+            .execute()
+        )
+        history_result = (
+            supabase.table("match_history")
+            .select("*")
+            .or_(
+                f"white_player.eq.{player['id']},"
+                f"black_player.eq.{player['id']}"
+            )
+            .order("created_at", desc=True)
+            .limit(100)
+            .execute()
+        )
+        profile = {
+            "id": player["id"],
+            "username": player["username"],
+            "rating": player["rating"],
+            "rank": rank,
+            "created_at": player.get("created_at"),
+            "stats": stats
+        }
         return jsonify({
-            "profile": {
-                "id": player["id"],
-                "username": player["username"],
-                "rating": player["rating"],
-                "rank": rank,
-                "created_at": player.get("created_at"),
-                "stats": stats
-            }
+            "profile": profile,
+            "player": profile,
+            "stats": stats,
+            "achievements": achievements_result.data or [],
+            "history": history_result.data or []
         })
 
     except Exception:
@@ -914,8 +937,43 @@ def friends():
                 .execute()
             )
 
+            records = result.data or []
+            friends_list = []
+            incoming = []
+            outgoing = []
+            for item in records:
+                status = item.get("status")
+                if status == "accepted":
+                    other_id = (
+                        item["receiver_id"]
+                        if item.get("sender_id") == player["id"]
+                        else item["sender_id"]
+                    )
+                    other = get_player_by_id(other_id)
+                    if other:
+                        friends_list.append({
+                            "id": other["id"],
+                            "username": other["username"]
+                        })
+                elif status == "pending":
+                    if item.get("receiver_id") == player["id"]:
+                        sender = get_player_by_id(item.get("sender_id"))
+                        if sender:
+                            incoming.append({
+                                "id": item["id"],
+                                "username": sender["username"]
+                            })
+                    elif item.get("sender_id") == player["id"]:
+                        receiver = get_player_by_id(item.get("receiver_id"))
+                        if receiver:
+                            outgoing.append({
+                                "id": item["id"],
+                                "username": receiver["username"]
+                            })
             return jsonify({
-                "requests": result.data or []
+                "friends": friends_list,
+                "requests": incoming,
+                "outgoing_requests": outgoing
             })
 
         data = request.get_json(silent=True) or {}
@@ -1277,14 +1335,12 @@ def hall_of_fame():
 
             return result
 
+        most_games = leaders("games_played")
         return jsonify({
             "highest_rated": highest.data or [],
-            "longest_win_streaks": leaders(
-                "longest_win_streak"
-            ),
-            "most_games_played": leaders(
-                "games_played"
-            )
+            "longest_win_streaks": leaders("longest_win_streak"),
+            "most_games_played": most_games,
+            "most_games": most_games
         })
 
     except Exception:
@@ -1626,6 +1682,27 @@ def make_move(
     if intended_end not in destinations:
         raise ValueError("Your intended destination is not legal.")
 
+    # The server chooses the actual destination. A mouseslip is guaranteed
+    # whenever at least one eligible alternative exists.
+    if piece.lower() == "n":
+        intended_direction = (intended_end[0] > r) - (intended_end[0] < r)
+        alternatives = [
+            destination for destination in destinations
+            if destination != intended_end
+            and ((destination[0] > r) - (destination[0] < r)) == intended_direction
+        ]
+    else:
+        alternatives = [
+            destination for destination in destinations
+            if destination != intended_end
+        ]
+    if alternatives:
+        end = random.choice(alternatives)
+        nr, nc = end
+    else:
+        end = intended_end
+        nr, nc = end
+
     old_en_passant = room.get("en_passant")
 
     # Correctly detect normal captures and en passant captures.
@@ -1741,6 +1818,7 @@ def new_room(
         "over": False,
         "rated": bool(rated),
         "unlimited": int(seconds) == 0,
+        "last_clock_emit": now,
         "tournament_id": tournament_id,
         "tournament_match_id": tournament_match_id
     }
@@ -1765,6 +1843,7 @@ def room_snapshot(room):
         "black_time": room["black_time"],
         "increment": room["increment"],
         "rated": room["rated"],
+        "unlimited": room["unlimited"],
         "over": room["over"],
         "moves": room["moves"]
     }
@@ -1876,6 +1955,21 @@ def clock_worker():
                         room["black_time"] = 0
                         finish_room(code, "white", "time")
 
+                if (
+                    not room["over"]
+                    and now - room.get("last_clock_emit", 0) >= 1
+                ):
+                    room["last_clock_emit"] = now
+                    socketio.emit(
+                        "clock_update",
+                        {
+                            "white_time": max(0, room["white_time"]),
+                            "black_time": max(0, room["black_time"]),
+                            "turn": room["turn"]
+                        },
+                        room=code
+                    )
+
 
 # ============================================================
 # MATCHMAKING
@@ -1934,6 +2028,7 @@ def find_match(data):
         now = time.time()
 
         opponent_entry = None
+        fallback_entry = None
 
         for item in waiting_players:
             waited = now - item["joined"]
@@ -1944,14 +2039,19 @@ def find_match(data):
             if not other_player:
                 continue
 
-            if (
-                item["seconds"] == seconds
-                and item["increment"] == increment
-                and abs(other_player["rating"] - rating)
-                <= allowed_difference
-            ):
+            if item["seconds"] != seconds or item["increment"] != increment:
+                continue
+
+            if abs(other_player["rating"] - rating) <= allowed_difference:
                 opponent_entry = item
                 break
+
+            # After 30 seconds, stop restricting matchmaking by rating.
+            if waited >= 30 and fallback_entry is None:
+                fallback_entry = item
+
+        if opponent_entry is None:
+            opponent_entry = fallback_entry
 
         if opponent_entry:
             waiting_players.remove(opponent_entry)
@@ -2905,6 +3005,40 @@ def start_tournament_match(match_id):
 # DAILY CHALLENGE COMPLETION
 # ============================================================
 
+@app.route("/api/daily-challenge")
+def daily_challenge():
+    try:
+        player = current_player()
+        today = datetime.now(RIYADH).date().isoformat()
+        challenge_result = (
+            supabase.table("daily_challenges")
+            .select("*")
+            .eq("challenge_date", today)
+            .limit(1)
+            .execute()
+        )
+        if not challenge_result.data:
+            return jsonify({"challenge": None, "completed": False})
+        challenge = challenge_result.data[0]
+        completed = False
+        if player:
+            completion = (
+                supabase.table("daily_challenge_completions")
+                .select("id")
+                .eq("challenge_id", challenge["id"])
+                .eq("player_id", player["id"])
+                .limit(1)
+                .execute()
+            )
+            completed = bool(completion.data)
+        return jsonify({
+            "challenge": challenge,
+            "completed": completed
+        })
+    except Exception:
+        return database_error("loading daily challenge")
+
+
 @app.route(
     "/api/daily-challenge/complete",
     methods=["POST"]
@@ -2916,7 +3050,7 @@ def complete_daily_challenge():
         if error:
             return error
 
-        today = date.today().isoformat()
+        today = datetime.now(RIYADH).date().isoformat()
 
         challenge_result = (
             supabase.table("daily_challenges")
