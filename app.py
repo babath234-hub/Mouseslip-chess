@@ -2716,14 +2716,8 @@ def online_move(data):
         else:
             room["black_time"] = max(0, room["black_time"])
 
-        if move["captured_piece"] in ("k", "K"):
-            finish_room(
-                code,
-                color,
-                "king captured"
-            )
-            return
-
+        # Always broadcast the completed move first so both players and
+        # spectators see the king capture on the board before the result.
         socketio.emit(
             "move_made",
             {
@@ -2742,6 +2736,9 @@ def online_move(data):
             },
             room=code
         )
+
+        if move["captured_piece"] in ("k", "K"):
+            finish_room(code, color, "king captured")
 
 
 # ============================================================
