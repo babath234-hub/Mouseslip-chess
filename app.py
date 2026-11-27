@@ -1708,8 +1708,9 @@ def make_move(
     if intended_end not in destinations:
         raise ValueError("Your intended destination is not legal.")
 
-    # The server chooses the actual destination. A mouseslip is guaranteed
-    # whenever at least one eligible alternative exists.
+    # The browser selects a random eligible slip and sends both squares.
+    # The server validates the actual destination so clients cannot bypass
+    # the guaranteed-mouseslip rule or report false statistics.
     if piece.lower() == "n":
         intended_direction = (intended_end[0] > r) - (intended_end[0] < r)
         alternatives = [
@@ -1725,12 +1726,14 @@ def make_move(
             and abs(destination[0] - intended_end[0]) <= 1
             and abs(destination[1] - intended_end[1]) <= 1
         ]
+
     if alternatives:
-        end = random.choice(alternatives)
-        nr, nc = end
-    else:
-        end = intended_end
-        nr, nc = end
+        if end not in alternatives:
+            raise ValueError("Your move must mouseslip to an eligible nearby square.")
+    elif end != intended_end:
+        raise ValueError("There is no eligible mouseslip for that move.")
+
+    nr, nc = end
 
     # Promotion itself also mouseslips: selecting one piece results in
     # a randomly selected different promotion piece.
