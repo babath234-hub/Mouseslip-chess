@@ -1118,22 +1118,38 @@ function getStockfishWorker(){
     stockfishReady=new Promise((resolve,reject)=>{
         const worker=new Worker("/static/stockfish-worker.js");
         stockfishWorker=worker;
-        let ready=false;
+        let ready=false,lastEngineMessage="(no response from engine)";
+        const startupTimer=setTimeout(()=>{
+            if(!ready){
+                worker.terminate();stockfishReady=null;stockfishWorker=null;
+                reject(new Error("Stockfish did not initialize within 20 seconds. Last response: "+lastEngineMessage));
+            }
+        },20000);
         worker.onmessage=event=>{
             const line=String(event.data||"").trim();
+            if(line)lastEngineMessage=line.slice(0,180);
             if(line==="uciok"){
                 worker.postMessage("isready");
             }else if(line==="readyok"&&!ready){
-                ready=true;resolve(worker);
+                ready=true;clearTimeout(startupTimer);resolve(worker);
             }else if(line.startsWith("bestmove ")&&stockfishPending){
                 const pending=stockfishPending;stockfishPending=null;
                 const move=line.split(" ")[1];
                 pending.resolve(move==="(none)"?null:move);
             }
         };
-        worker.onerror=error=>{
+        worker.onerror=event=>{
+            clearTimeout(startupTimer);
             stockfishReady=null;stockfishWorker=null;
+            const detail=event.message||"Browser could not load the Stockfish worker or its WebAssembly file.";
+            const error=new Error(detail);
             if(stockfishPending){const pending=stockfishPending;stockfishPending=null;pending.reject(error);}
+            if(!ready)reject(error);
+        };
+        worker.onmessageerror=()=>{
+            clearTimeout(startupTimer);
+            const error=new Error("The browser could not read a message from the Stockfish worker.");
+            stockfishReady=null;stockfishWorker=null;
             if(!ready)reject(error);
         };
         worker.postMessage("uci");
@@ -1197,7 +1213,7 @@ async function chooseStockfishBotMove(){
     }catch(error){
         console.error("Stockfish failed; the old bot will not be used as a silent fallback.",error);
         const status=document.getElementById("gameStatus");
-        if(status)status.textContent="Stockfish could not make a move. Please refresh and try again.";
+        if(status)status.textContent="Stockfish error: "+String(error?.message||error||"Unknown error").slice(0,180);
         return null;
     }
 }
