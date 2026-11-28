@@ -706,6 +706,7 @@ async function viewPublicProfile(username){
 
 // BOT GAME
 function startBotGame(){
+    clearBoardArrows();
     if(!currentUser){showScreen("accountScreen");showMessage("accountMessage","Log in before playing.");return}
     botGeneration++;botThinking=false;
     gameMode="bot";gameUnlimited=false;isTournamentGame=false;
@@ -720,6 +721,7 @@ function startBotGame(){
     whiteTime=botTime;blackTime=botTime;gameStartTime=Date.now();
     document.getElementById("gameTitle").textContent="Play Against Bot";
     document.getElementById("gameOpponent").textContent="Bot — Difficulty "+botDifficulty;
+    restoreLastGameResult();
     showScreen("gameScreen");renderBoard();startClock();
     if(botColor==="black")setTimeout(botMove,500);
 }
@@ -1330,7 +1332,8 @@ function endLocalGame(winner,reason){
     if(gameMode==="dailyChallenge"&&currentDailyChallenge){
         const result=winner==="draw"?"Draw":(winner===myColor?"Win":"Lose");
         const achieved=result===currentDailyChallenge.goal;
-        document.getElementById("gameStatus").textContent=(achieved?"Challenge achieved! ":"Challenge finished. ")+ "Result: "+result+" — "+reason;
+        lastGameResultText=(achieved?"Challenge achieved! ":"Challenge finished. ")+ "Result: "+result+" — "+reason;
+        document.getElementById("gameStatus").textContent=lastGameResultText;
         if(achieved){
             api("/api/daily-challenge/complete",{method:"POST",body:JSON.stringify({})})
                 .then(()=>showMessage("dailyMessage","Challenge completed!"))
@@ -1340,7 +1343,11 @@ function endLocalGame(winner,reason){
         }
         return;
     }
-    document.getElementById("gameStatus").textContent=(winner===myColor?"You win!":"You lose!")+" — "+reason;
+    lastGameResultText=(winner===myColor?"You win!":"You lose!")+" — "+reason;
+    document.getElementById("gameStatus").textContent=lastGameResultText;
+}
+function restoreLastGameResult(){
+    if(lastGameResultText)document.getElementById("gameStatus").textContent=lastGameResultText;
 }
 
 // CLOCKS
