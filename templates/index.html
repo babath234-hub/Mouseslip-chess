@@ -1281,12 +1281,10 @@ async function chooseStockfishBotMove(){
     const moves=allMovesFor(currentTurn);
     if(!moves.length)return null;
 
-    // Expert alone has a Mouseslip-specific king-capture priority.
-    if(Number(botDifficulty)===4){
-        const enemyKing=currentTurn==="white"?"k":"K";
-        const winningMove=moves.find(move=>board[move.to[0]][move.to[1]]===enemyKing);
-        if(winningMove)return winningMove;
-    }
+    // In Mouseslip Chess, capturing the king wins immediately at every difficulty.
+    const enemyKing=currentTurn==="white"?"k":"K";
+    const winningMove=moves.find(move=>board[move.to[0]][move.to[1]]===enemyKing);
+    if(winningMove)return winningMove;
 
     try{
         const uci=await requestStockfishMove();
@@ -1305,11 +1303,12 @@ async function botMove(){
     botThinking=true;
     const generation=botGeneration,startedAt=gameStartTime,mode=gameMode,turn=currentTurn;
     try{
-        const move=mode==="bot"?await chooseStockfishBotMove():chooseBotMove();
+        // Both regular Bot games and Daily Challenges use Stockfish.
+        const move=await chooseStockfishBotMove();
         if(generation!==botGeneration||startedAt!==gameStartTime||mode!==gameMode||turn!==currentTurn||gameOver)return;
         if(!move){
             const botStatus=document.getElementById("gameStatus")?.textContent||"";
-            if(mode==="bot"&&(botStatus.startsWith("Stockfish could not")||botStatus.startsWith("Stockfish error:"))){
+            if((mode==="bot"||mode==="dailyChallenge")&&(botStatus.startsWith("Stockfish could not")||botStatus.startsWith("Stockfish error:"))){
                 // A failed engine request is not a chess result. Pause instead of awarding a false win.
                 gameOver=true;stopClock();return;
             }
@@ -1319,7 +1318,9 @@ async function botMove(){
         }
         const destinations=getLegalMoves(move.from[0],move.from[1]);
         const botSlipChance=Number(botDifficulty)===3?0.60:Number(botDifficulty)===4?0.50:1;
-        const destination=chooseSlip(move.from,move.to,destinations,botSlipChance);
+        const isKingCapture=board[move.to[0]][move.to[1]].toLowerCase()==="k";
+        // Never let a Mouseslip turn an immediate winning king capture into a different move.
+        const destination=isKingCapture?move.to:chooseSlip(move.from,move.to,destinations,botSlipChance);
         const movingColor=currentTurn;
         const captured=applyLocalMove(move.from,destination,randomPromotion());
         playGameSound(destination[0]!==move.to[0]||destination[1]!==move.to[1]?"slip":captured&&captured!=="."?"capture":"move");
