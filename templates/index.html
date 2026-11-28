@@ -1147,10 +1147,10 @@ async function requestStockfishMove(){
     const worker=await getStockfishWorker();
     const settings={
         1:{skill:0,depth:4},
-        2:{skill:5,depth:7},
-        3:{skill:12,depth:10},
-        4:{skill:20,depth:14}
-    }[Number(botDifficulty)]||{skill:5,depth:7};
+        2:{skill:5,depth:8},
+        3:{skill:12,depth:13},
+        4:{skill:20,depth:20}
+    }[Number(botDifficulty)]||{skill:5,depth:8};
     worker.postMessage("setoption name Skill Level value "+settings.skill);
     worker.postMessage("position fen "+boardToStockfishFEN());
     return new Promise((resolve,reject)=>{
@@ -1163,7 +1163,20 @@ function stockfishMoveToLocal(uci,moves){
     if(!uci||! /^[a-h][1-8][a-h][1-8][qrbn]?$/.test(uci))return null;
     const from=[8-Number(uci[1]),FILES.indexOf(uci[0])];
     const to=[8-Number(uci[3]),FILES.indexOf(uci[2])];
-    return moves.find(move=>move.from[0]===from[0]&&move.from[1]===from[1]&&move.to[0]===to[0]&&move.to[1]===to[1])||null;
+    const exact=moves.find(move=>move.from[0]===from[0]&&move.from[1]===from[1]&&move.to[0]===to[0]&&move.to[1]===to[1]);
+    if(exact)return exact;
+
+    // Mouseslip Chess can permit a different move set from standard chess.
+    // Preserve Stockfish's chosen piece and select its closest legal destination.
+    const samePiece=moves.filter(move=>move.from[0]===from[0]&&move.from[1]===from[1]);
+    const candidates=samePiece.length?samePiece:moves;
+    if(!candidates.length)return null;
+    return candidates.reduce((best,move)=>{
+        const sourcePenalty=samePiece.length?0:(Math.abs(move.from[0]-from[0])+Math.abs(move.from[1]-from[1]))*4;
+        const targetDistance=Math.abs(move.to[0]-to[0])+Math.abs(move.to[1]-to[1]);
+        const score=sourcePenalty+targetDistance;
+        return !best||score<best.score?{move,score}:best;
+    },null).move;
 }
 async function chooseStockfishBotMove(){
     const moves=allMovesFor(currentTurn);
@@ -1180,11 +1193,13 @@ async function chooseStockfishBotMove(){
         const uci=await requestStockfishMove();
         const selected=stockfishMoveToLocal(uci,moves);
         if(selected)return selected;
-        console.warn("Stockfish suggested a move outside Mouseslip Chess legal moves; using the fallback engine.");
+        throw new Error("Stockfish did not return a usable move.");
     }catch(error){
-        console.warn("Stockfish could not start; using the built-in fallback engine.",error);
+        console.error("Stockfish failed; the old bot will not be used as a silent fallback.",error);
+        const status=document.getElementById("gameStatus");
+        if(status)status.textContent="Stockfish could not make a move. Please refresh and try again.";
+        return null;
     }
-    return chooseBotMove();
 }
 async function botMove(){
     if(gameOver||(gameMode!=="bot"&&gameMode!=="dailyChallenge")||currentTurn===myColor||botThinking)return;
@@ -1194,6 +1209,9 @@ async function botMove(){
         const move=mode==="bot"?await chooseStockfishBotMove():chooseBotMove();
         if(generation!==botGeneration||startedAt!==gameStartTime||mode!==gameMode||turn!==currentTurn||gameOver)return;
         if(!move){
+            if(mode==="bot"&&document.getElementById("gameStatus")?.textContent.startsWith("Stockfish could not")){
+                gameOver=true;stopClock();return;
+            }
             if(gameMode==="dailyChallenge")endLocalGame(myColor,"the bot has no legal moves");
             else endLocalGame(myColor,"no available moves");
             return;
