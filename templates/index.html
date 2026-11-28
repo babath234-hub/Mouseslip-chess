@@ -73,7 +73,7 @@ nav button{background:var(--panel2);border:1px solid var(--border);color:white;p
 .piece{z-index:2;line-height:1;display:inline-block}
 .piece.white-piece{color:#fff;text-shadow:0 1px 2px #111,-1px -1px 0 #222,1px -1px 0 #222,-1px 1px 0 #222,1px 1px 0 #222}
 .piece.black-piece{color:#151515;text-shadow:0 1px 2px #fff8}
-.piece.modern{font-family:Georgia,"Times New Roman",serif}
+.piece.classic{font-family:Georgia,"Times New Roman",serif;font-weight:400}.piece.modern{font-family:"Segoe UI Symbol","Noto Sans Symbols 2",sans-serif;font-weight:900;font-size:1.08em;-webkit-text-stroke:.55px currentColor;filter:drop-shadow(0 2px 1px #0006);transform:scale(1.06)}
 .piece.simple{font-family:Arial,sans-serif;font-size:.68em;font-weight:900;line-height:1;border:2px solid currentColor;border-radius:50%;width:1.15em;height:1.15em;display:flex;align-items:center;justify-content:center}
 #arrowLayer{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:4}
 #gameInfo{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin:14px 0}
@@ -849,8 +849,10 @@ function slipPromotion(intended="q"){
 function randomPromotion(){return slipPromotion(["q","r","b","n"][Math.floor(Math.random()*4)])}
 
 // MOUSESLIP
-function chooseSlip(start,intended,destinations){
+function chooseSlip(start,intended,destinations,slipChance=1){
     if(!destinations.length)return intended;
+    // The optional chance is used only for the bot; human moves keep the normal rule.
+    if(Math.random()>=slipChance)return intended;
     const piece=board[start[0]][start[1]],isKnight=piece.toLowerCase()==="n";
     let alternatives=destinations.filter(move=>
         (move[0]!==intended[0]||move[1]!==intended[1])&&
@@ -1307,7 +1309,8 @@ async function botMove(){
             return;
         }
         const destinations=getLegalMoves(move.from[0],move.from[1]);
-        const destination=chooseSlip(move.from,move.to,destinations);
+        const botSlipChance=Number(botDifficulty)===3?0.60:Number(botDifficulty)===4?0.50:1;
+        const destination=chooseSlip(move.from,move.to,destinations,botSlipChance);
         const movingColor=currentTurn;
         const captured=applyLocalMove(move.from,destination,randomPromotion());
         currentTurn=currentTurn==="white"?"black":"white";
