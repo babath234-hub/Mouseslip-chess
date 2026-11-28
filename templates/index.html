@@ -87,6 +87,7 @@ nav button{background:var(--panel2);border:1px solid var(--border);color:white;p
 #chatMessages{max-height:180px;overflow-y:auto;background:#111725;padding:10px;border-radius:8px}
 .chat-line{padding:5px 0;border-bottom:1px solid #293146}
 #gameStatus{text-align:center;font-weight:bold;margin:12px}
+#lastGameResult{text-align:center;padding:10px;margin:10px 0;background:#182131;border:1px solid #52627a;border-radius:9px;font-weight:700;color:#f4d58a}
 #onlinePlayerCount{font-size:12px;color:#b8c7dc;white-space:nowrap;padding:7px 9px;background:#182131;border:1px solid #354258;border-radius:8px}
 #tournamentBracket{display:grid;grid-template-columns:repeat(5,minmax(150px,1fr));gap:12px;overflow-x:auto}
 .round-column{min-width:150px;background:#151b29;padding:10px;border-radius:9px}
@@ -412,6 +413,7 @@ header{padding:12px}.container{width:96%;margin:14px auto}
                 <span class="clock-turn"></span>
             </div>
         </div>
+        <div id="lastGameResult" class="hidden" aria-live="polite"></div>
         <div id="gameStatus">Your turn</div>
         <div id="boardArea"><div id="board"></div><svg id="arrowLayer"></svg></div>
         <div class="row">
@@ -1334,6 +1336,7 @@ function endLocalGame(winner,reason){
         const achieved=result===currentDailyChallenge.goal;
         lastGameResultText=(achieved?"Challenge achieved! ":"Challenge finished. ")+ "Result: "+result+" — "+reason;
         document.getElementById("gameStatus").textContent=lastGameResultText;
+        showLastGameResult();
         if(achieved){
             api("/api/daily-challenge/complete",{method:"POST",body:JSON.stringify({})})
                 .then(()=>showMessage("dailyMessage","Challenge completed!"))
@@ -1345,10 +1348,16 @@ function endLocalGame(winner,reason){
     }
     lastGameResultText=(winner===myColor?"You win!":"You lose!")+" — "+reason;
     document.getElementById("gameStatus").textContent=lastGameResultText;
+    showLastGameResult();
 }
-function restoreLastGameResult(){
-    if(lastGameResultText)document.getElementById("gameStatus").textContent=lastGameResultText;
+function showLastGameResult(){
+    const banner=document.getElementById("lastGameResult");
+    if(!banner)return;
+    if(!lastGameResultText){banner.classList.add("hidden");return}
+    banner.textContent="Previous game: "+lastGameResultText;
+    banner.classList.remove("hidden");
 }
+function restoreLastGameResult(){showLastGameResult()}
 
 // CLOCKS
 function formatTime(seconds){
@@ -1550,6 +1559,7 @@ socket.on("match_result",data=>{
     const won=data.winner===myColor;
     lastGameResultText=(won?"You won!":"You lost!")+" — "+(data.reason||"Game finished");
     document.getElementById("gameStatus").textContent=lastGameResultText;
+    showLastGameResult();
     if(gameMode==="online"&&!isTournamentGame)document.getElementById("rematchButton").classList.remove("hidden");
     if(data.ratings){
         const rating=data.ratings[myColor];
