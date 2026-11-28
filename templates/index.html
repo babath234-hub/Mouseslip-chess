@@ -983,19 +983,63 @@ function evaluateBoard(){
 function evaluateBotPosition(){
     const values={p:100,n:320,b:335,r:500,q:900,k:20000};
     let score=0,whiteKing=false,blackKing=false;
+    const material={white:0,black:0};
+    const minorPieces={white:0,black:0};
+    const pawnFiles={white:Array(8).fill(0),black:Array(8).fill(0)};
+    const sign=color=>color==="white"?1:-1;
+
     for(let r=0;r<8;r++)for(let c=0;c<8;c++){
         const piece=board[r][c];if(piece===".")continue;
-        const type=piece.toLowerCase();
-        if(type==="k"){if(colorOf(piece)==="white")whiteKing=true;else blackKing=true}
+        const type=piece.toLowerCase(),color=colorOf(piece),direction=sign(color);
+        if(type==="k"){
+            if(color==="white")whiteKing=true;else blackKing=true;
+        }
         const value=values[type]||0;
-        score+=colorOf(piece)==="white"?value:-value;
-        if("bnqp".includes(type)){
-            const centre=(3.5-Math.abs(3.5-r))+(3.5-Math.abs(3.5-c));
-            score+=(colorOf(piece)==="white"?1:-1)*centre*(type==="p"?2:3);
+        material[color]+=value;
+        score+=direction*value;
+
+        const center=7-(Math.abs(3.5-r)+Math.abs(3.5-c));
+        if(type==="p"){
+            pawnFiles[color][c]++;
+            const advance=color==="white"?6-r:r-1;
+            score+=direction*(advance*7+center*2);
+            if(c>=2&&c<=5)score+=direction*5;
+        }else if(type==="n"||type==="b"){
+            minorPieces[color]++;
+            score+=direction*center*(type==="n"?7:4);
+            const homeRow=color==="white"?7:0;
+            if(r===homeRow&&(type==="n"&&(c===1||c===6)||type==="b"&&(c===2||c===5)))score-=direction*24;
+        }else if(type==="q"){
+            score+=direction*center*2;
+        }else if(type==="r"){
+            const openFile=pawnFiles[color][c]===0;
+            if(openFile)score+=direction*12;
+            if((color==="white"&&r===1)||(color==="black"&&r===6))score+=direction*12;
         }
     }
+
     if(!whiteKing)return -100000;
     if(!blackKing)return 100000;
+
+    for(const color of ["white","black"]){
+        const direction=sign(color);
+        for(let c=0;c<8;c++){
+            if(pawnFiles[color][c]>1)score-=direction*12;
+            if(pawnFiles[color][c]===0&&pawnFiles[color][Math.max(0,c-1)]===0&&pawnFiles[color][Math.min(7,c+1)]===0){
+                // No penalty: open files are useful for rooks.
+            }
+        }
+        score+=direction*minorPieces[color]*5;
+    }
+
+    // Discourage repeatedly moving the same piece instead of developing the rest.
+    if(gameMoves.length>=3){
+        const latest=gameMoves[gameMoves.length-1];
+        const previousSameSide=gameMoves[gameMoves.length-3];
+        if(latest&&previousSameSide&&latest.from===previousSameSide.to){
+            score-=sign(colorOf(latest.piece))*22;
+        }
+    }
     return score;
 }
 function searchBotPosition(depth,alpha,beta){
