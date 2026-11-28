@@ -570,6 +570,7 @@ const FILES="abcdefgh";
 
 function api(url,options={}){
     return fetch(url,{
+        cache:"no-store",
         credentials:"same-origin",
         headers:{"Content-Type":"application/json",...(options.headers||{})},
         ...options
