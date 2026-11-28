@@ -80,6 +80,7 @@ rooms = {}
 sid_room = {}
 waiting_players = []
 connected_sids = set()
+online_sids = set()
 tournament_waiting = {}
 player_sids = {}
 spectator_rooms = {}
@@ -2274,10 +2275,12 @@ def clock_worker():
 
 @socketio.on("connect")
 def socket_connected(auth=None):
+    online_sids.add(request.sid)
     player = current_player()
     if player:
         player_sids[player["id"]] = request.sid
         connected_sids.add(request.sid)
+    socketio.emit("online_count", {"count": len(online_sids)})
 
 
 @socketio.on("register_presence")
@@ -3051,6 +3054,7 @@ def leave_game():
 
 @socketio.on("disconnect")
 def disconnected():
+    online_sids.discard(request.sid)
     with lock:
         connected_sids.discard(request.sid)
         for player_id, sid in list(player_sids.items()):
@@ -3084,6 +3088,8 @@ def disconnected():
 
         sid_room.pop(request.sid, None)
         connected_sids.discard(request.sid)
+
+    socketio.emit("online_count", {"count": len(online_sids)})
 
 
 # ============================================================
