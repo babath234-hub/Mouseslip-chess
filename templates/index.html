@@ -85,6 +85,8 @@ nav button{background:var(--panel2);border:1px solid var(--border);color:white;p
 .clock.low-time .clock-value{color:#ffb4a8}
 @media(max-width:420px){ #gameInfo{gap:8px}.clock{padding:10px 6px}.clock-value{font-size:25px}}
 #chatMessages{max-height:180px;overflow-y:auto;background:#111725;padding:10px;border-radius:8px}
+#moveList{max-height:190px;overflow-y:auto;background:#111725;padding:10px;border-radius:8px;font-size:13px}
+.move-line{padding:4px 0;border-bottom:1px solid #293146}
 .chat-line{padding:5px 0;border-bottom:1px solid #293146}
 #gameStatus{text-align:center;font-weight:bold;margin:12px}
 #lastGameResult{text-align:center;padding:10px;margin:10px 0;background:#182131;border:1px solid #52627a;border-radius:9px;font-weight:700;color:#f4d58a}
@@ -416,10 +418,13 @@ header{padding:12px}.container{width:96%;margin:14px auto}
         <div id="lastGameResult" class="hidden" aria-live="polite"></div>
         <div id="gameStatus">Your turn</div>
         <div id="boardArea"><div id="board"></div><svg id="arrowLayer"></svg></div>
+        <div class="panel" id="moveListPanel"><h3>Move list</h3><div id="moveList" class="muted">Moves will appear here.</div></div>
         <div class="row">
             <button class="secondary" id="restartGameButton" onclick="restartGame()">Restart</button>
             <button class="danger" id="resignGameButton" onclick="resignGame()">Resign</button>
+            <button class="secondary hidden" id="drawOfferButton" onclick="offerDraw()">Offer Draw</button>
             <button class="success hidden" id="rematchButton" onclick="requestRematch()">Rematch</button>
+            <button class="secondary" id="soundToggleButton" onclick="toggleGameSounds()">Sounds: Off</button>
             <button class="secondary" onclick="showScreen('homeScreen')">Menu</button>
         </div>
     </div>
@@ -458,6 +463,7 @@ let replayStates=[],replayMoves=[],replayIndex=0;
 let challengeEditorBoard=null,currentDailyChallenge=null;
 let gameStartTime=0,analysisArrows=[];
 let boardArrows=[],arrowStart=null,lastGameResultText="";
+let gameSoundsEnabled=false,audioContext=null;
 let hallSongMuted=false;
 
 function updateHallVolumeButtons(){
@@ -834,6 +840,7 @@ function applyLocalMove(start,end,promotion="q"){
     const intendedSquare=window.lastIntendedSquare||squareName(nr,nc);
     gameMoves.push({from:squareName(r,c),to:squareName(nr,nc),piece,captured,intended_to:intendedSquare,slipped:intendedSquare!==squareName(nr,nc)});
     window.lastIntendedSquare=null;
+    renderMoveList();
     return captured;
 }
 function squareName(r,c){return FILES[c]+(8-r)}
@@ -1527,7 +1534,8 @@ socket.on("game_started",data=>{
     gameUnlimited=!!data.unlimited;
     isTournamentGame=!!data.tournament;
     whiteTime=data.white_time??whiteTime;blackTime=data.black_time??blackTime;
-    gameMoves=data.moves||[];renderBoard();updateClocks();
+    gameMoves=data.moves||[];renderBoard();renderMoveList();updateClocks();
+    document.getElementById("drawOfferButton").classList.toggle("hidden",!!data.tournament||gameMode!=="online");
 });
 socket.on("clock_update",data=>{
     whiteTime=Number(data.white_time??whiteTime);
@@ -1542,9 +1550,11 @@ socket.on("move_made",data=>{
     board=data.board;currentTurn=data.turn;
     whiteTime=data.white_time;blackTime=data.black_time;
     if(data.moves)gameMoves=data.moves;
+    renderMoveList();
     if(data.move){
         const from=parseSquare(data.move.from),to=parseSquare(data.move.to);
         if(from&&to)lastMove={from,to};
+        playGameSound(data.move.slipped?"slip":data.move.captured?"capture":"move");
     }
     selectedSquare=null;legalSquares=[];
     renderBoard();updateClocks();
@@ -1559,16 +1569,32 @@ socket.on("match_result",data=>{
         document.getElementById("gameStatus").textContent="Game finished — "+(data.winner==="white"?"White":"Black")+" won ("+(data.reason||"finished")+")";
         return;
     }
+    const isDraw=!data.winner;
     const won=data.winner===myColor;
-    lastGameResultText=(won?"You won!":"You lost!")+" — "+(data.reason||"Game finished");
+    lastGameResultText=(isDraw?"Draw":won?"You won!":"You lost!")+" — "+(data.reason||"Game finished");
     document.getElementById("gameStatus").textContent=lastGameResultText;
     showLastGameResult();
+    playGameSound("end");
+    document.getElementById("drawOfferButton").classList.add("hidden");
     if(gameMode==="online"&&!isTournamentGame)document.getElementById("rematchButton").classList.remove("hidden");
     if(data.ratings){
         const rating=data.ratings[myColor];
         if(rating&&currentUser){currentUser.rating=rating;updateAccountUI()}
     }
 });
+socket.on("draw_status",data=>{document.getElementById("gameStatus").textContent=data.message||"Draw offer update.";});
+socket.on("draw_error",data=>{document.getElementById("gameStatus").textContent=data.error||"Draw offer unavailable.";});
+socket.on("draw_offer",data=>{
+    if(isTournamentGame)return;
+    const accept=confirm((data.username||"Your opponent")+" offers a draw. Accept?");
+    socket.emit("respond_draw",{room:data.room||currentGame,accept});
+});
+socket.on("match_replayed",data=>{
+    gameOver=false;lastMove=null;gameMoves=[];selectedSquare=null;legalSquares=[];
+    document.getElementById("gameStatus").textContent=data.message||"Tournament match restarting.";
+    renderBoard();renderMoveList();
+});
+socket.on("reconnected_game",data=>{document.getElementById("gameStatus").textContent=data.message||"Reconnected to your game.";});
 socket.on("chat_message",data=>addChatMessage(data.username,data.message));
 socket.on("chat_error",data=>addChatMessage("System",data.error));
 
@@ -1581,6 +1607,10 @@ function parseSquare(square){
 }
 
 // GAME CONTROLS
+function offerDraw(){
+    if(gameMode!=="online"||!currentGame||isTournamentGame)return;
+    socket.emit("offer_draw");
+}
 function requestRematch(){
     if(gameMode!=="online"||!currentGame)return;
     document.getElementById("gameStatus").textContent="Sending rematch request...";
@@ -1596,6 +1626,49 @@ function restartGame(){
 }
 
 // CHAT
+function toggleGameSounds(){
+    gameSoundsEnabled=!gameSoundsEnabled;
+    const button=document.getElementById("soundToggleButton");
+    if(button)button.textContent="Sounds: "+(gameSoundsEnabled?"On":"Off");
+    if(gameSoundsEnabled){
+        try{const AudioClass=window.AudioContext||window.webkitAudioContext;if(AudioClass){audioContext=audioContext||new AudioClass();audioContext.resume();}}catch(_){}
+    }
+}
+function playGameSound(kind){
+    if(!gameSoundsEnabled)return;
+    try{
+        const AudioClass=window.AudioContext||window.webkitAudioContext;
+        if(!AudioClass)return;
+        audioContext=audioContext||new AudioClass();
+        if(audioContext.state==="suspended")audioContext.resume();
+        const oscillator=audioContext.createOscillator(),gain=audioContext.createGain();
+        const tones={move:440,capture:270,slip:660,end:790};
+        oscillator.frequency.value=tones[kind]||440;oscillator.type="sine";
+        gain.gain.setValueAtTime(0.0001,audioContext.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.07,audioContext.currentTime+0.015);
+        gain.gain.exponentialRampToValueAtTime(0.0001,audioContext.currentTime+0.15);
+        oscillator.connect(gain);gain.connect(audioContext.destination);
+        oscillator.start();oscillator.stop(audioContext.currentTime+0.16);
+    }catch(_){}
+}
+function renderMoveList(){
+    const target=document.getElementById("moveList");if(!target)return;
+    if(!Array.isArray(gameMoves)||!gameMoves.length){target.textContent="Moves will appear here.";return}
+    const names={p:"Pawn",r:"Rook",n:"Knight",b:"Bishop",q:"Queen",k:"King"};
+    target.innerHTML=gameMoves.map((move,index)=>{
+        const name=names[String(move.piece||"").toLowerCase()]||"Piece";
+        const actual=move.to||"?",intended=move.intended_to||actual;
+        const line=document.createElement("div");line.className="move-line";
+        const strong=document.createElement("strong");strong.textContent=(Math.floor(index/2)+1)+". "+(index%2?"Black: ":"White: ");
+        line.appendChild(strong);
+        line.appendChild(document.createTextNode(name+" "+(move.from||"?")+" → "+actual));
+        if(move.slipped||intended!==actual)line.appendChild(document.createTextNode(" (intended "+intended+")"));
+        if(move.captured||move.captured_piece&&move.captured_piece!==".")line.appendChild(document.createTextNode(" ×"));
+        return line.outerHTML;
+    }).join("");
+    target.scrollTop=target.scrollHeight;
+}
+
 function addChatMessage(username,message){
     const container=document.getElementById("chatMessages");
     const line=document.createElement("div");line.className="chat-line";

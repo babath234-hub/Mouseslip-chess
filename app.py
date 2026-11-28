@@ -86,6 +86,7 @@ player_sids = {}
 spectator_rooms = {}
 rematch_requests = {}
 game_invites = {}
+disconnect_timers = {}
 
 tournament_lock = threading.RLock()
 _firebase_app = None
@@ -1918,6 +1919,8 @@ def new_room(
         "en_passant": None,
         "turn": "white",
         "moves": [],
+        "halfmove_clock": 0,
+        "position_counts": {},
         "seconds": max(1, int(seconds)),
         "increment": max(0, int(increment)),
         "white_time": max(1, int(seconds)),
@@ -1935,6 +1938,7 @@ def new_room(
         "private": bool(private)
     }
 
+    room["position_counts"][position_key(room)] = 1
     rooms[code] = room
 
     if white:
@@ -1944,6 +1948,41 @@ def new_room(
         sid_room[black] = code
 
     return room
+
+
+def position_key(room):
+    return (
+        tuple("".join(row) for row in room["board"]),
+        room["turn"],
+        tuple(sorted(room["rights"].items())),
+        tuple(room["en_passant"]) if room.get("en_passant") else None
+    )
+
+
+def replay_tournament_room(room):
+    room["board"] = initial_board()
+    room["rights"] = {
+        "white_kingside": True, "white_queenside": True,
+        "black_kingside": True, "black_queenside": True
+    }
+    room["en_passant"] = None
+    room["turn"] = "white"
+    room["moves"] = []
+    room["halfmove_clock"] = 0
+    room["position_counts"] = {position_key(room): 1}
+    room["white_time"] = room["seconds"]
+    room["black_time"] = room["seconds"]
+    room["last"] = time.monotonic()
+    room["last_clock_emit"] = time.monotonic()
+    room["match_id"] = str(uuid.uuid4())
+    room["over"] = False
+    room["active"] = True
+    room.pop("winner", None)
+    room.pop("reason", None)
+    socketio.emit("match_replayed", {
+        "message": "Draw by the 50-move rule or threefold repetition. The tournament match is restarting."
+    }, room=room["code"])
+    socketio.emit("game_started", room_snapshot(room), room=room["code"])
 
 
 def room_snapshot(room):
@@ -2150,7 +2189,8 @@ def finish_room(code, winner, reason):
 
         winner_id = (
             room["white_id"] if winner == "white"
-            else room["black_id"]
+            else room["black_id"] if winner == "black"
+            else None
         )
 
         try:
@@ -2204,7 +2244,7 @@ def finish_room(code, winner, reason):
             room=code
         )
 
-        if room.get("tournament_match_id"):
+        if room.get("tournament_match_id") and winner_id:
             # Both players earn Tournament Debut after completing their first
             # tournament match, regardless of who won.
             for player_id in (room.get("white_id"), room.get("black_id")):
@@ -2273,6 +2313,39 @@ def clock_worker():
 # SOCKET PRESENCE, SPECTATING, FRIEND INVITES AND REMATCHES
 # ============================================================
 
+def restore_player_game(player):
+    if not player:
+        return
+    for code, room in list(rooms.items()):
+        if room.get("over"):
+            continue
+        side = next((s for s in ("white", "black") if room.get(s + "_id") == player["id"]), None)
+        if not side:
+            continue
+        old_sid = room.get(side)
+        timer = disconnect_timers.pop((code, side), None)
+        if timer:
+            timer.cancel()
+        if old_sid:
+            sid_room.pop(old_sid, None)
+        room[side] = request.sid
+        sid_room[request.sid] = code
+        player_sids[player["id"]] = request.sid
+        join_room(code)
+        emit("reconnected_game", {"message": "Reconnected to your game."})
+        emit("game_started", room_snapshot(room))
+        break
+
+
+def expire_disconnected_game(code, side, old_sid):
+    with lock:
+        room = rooms.get(code)
+        if not room or room.get("over") or room.get(side) != old_sid:
+            return
+        disconnect_timers.pop((code, side), None)
+        finish_room(code, opponent(side), "disconnect timeout")
+
+
 @socketio.on("connect")
 def socket_connected(auth=None):
     online_sids.add(request.sid)
@@ -2280,6 +2353,7 @@ def socket_connected(auth=None):
     if player:
         player_sids[player["id"]] = request.sid
         connected_sids.add(request.sid)
+        restore_player_game(player)
     socketio.emit("online_count", {"count": len(online_sids)})
 
 
@@ -2289,6 +2363,7 @@ def register_socket_presence():
     if player:
         player_sids[player["id"]] = request.sid
         connected_sids.add(request.sid)
+        restore_player_game(player)
 
 
 @socketio.on("unregister_presence")
@@ -3008,11 +3083,71 @@ def online_move(data):
 
         if move["captured_piece"] in ("k", "K"):
             finish_room(code, color, "king captured")
+            return
+
+        if str(move.get("piece", "")).lower() == "p" or move.get("captured_piece") != ".":
+            room["halfmove_clock"] = 0
+        else:
+            room["halfmove_clock"] = int(room.get("halfmove_clock", 0)) + 1
+
+        key = position_key(room)
+        counts = room.setdefault("position_counts", {})
+        counts[key] = counts.get(key, 0) + 1
+        draw_reason = None
+        if room["halfmove_clock"] >= 100:
+            draw_reason = "50-move rule"
+        elif counts[key] >= 3:
+            draw_reason = "threefold repetition"
+
+        if draw_reason:
+            if room.get("tournament_match_id"):
+                replay_tournament_room(room)
+            else:
+                finish_room(code, None, draw_reason)
 
 
 # ============================================================
 # RESIGNATION AND LEAVING
 # ============================================================
+
+@socketio.on("offer_draw")
+def offer_draw():
+    code = sid_room.get(request.sid)
+    room = rooms.get(code) if code else None
+    if not room or room["over"]:
+        emit("draw_error", {"error": "There is no active game."})
+        return
+    if room.get("tournament_match_id"):
+        emit("draw_error", {"error": "Draw offers are disabled in tournament matches."})
+        return
+    if request.sid not in (room.get("white"), room.get("black")):
+        emit("draw_error", {"error": "Only players can offer a draw."})
+        return
+    opponent_sid = room["black"] if room["white"] == request.sid else room["white"]
+    player = current_player()
+    socketio.emit("draw_offer", {
+        "room": code,
+        "username": player["username"] if player else "Your opponent"
+    }, to=opponent_sid)
+    emit("draw_status", {"message": "Draw offer sent."})
+
+
+@socketio.on("respond_draw")
+def respond_draw(data):
+    data = data or {}
+    code = str(data.get("room", "")).strip().upper()
+    room = rooms.get(code)
+    if not room or room["over"] or room.get("tournament_match_id"):
+        emit("draw_error", {"error": "Draw offers are unavailable for this game."})
+        return
+    if request.sid not in (room.get("white"), room.get("black")):
+        emit("draw_error", {"error": "Only players can respond to a draw offer."})
+        return
+    if data.get("accept"):
+        finish_room(code, None, "draw by agreement")
+    else:
+        socketio.emit("draw_status", {"message": "Your opponent declined the draw."}, room=code)
+
 
 @socketio.on("resign")
 def resign():
@@ -3081,12 +3216,13 @@ def disconnected():
         room = rooms.get(code) if code else None
 
         if room and not room["over"] and room["black"]:
-            if room["white"] == request.sid:
-                finish_room(code, "black", "disconnect")
-            elif room["black"] == request.sid:
-                finish_room(code, "white", "disconnect")
+            side = "white" if room["white"] == request.sid else "black" if room["black"] == request.sid else None
+            if side:
+                timer = threading.Timer(45, expire_disconnected_game, args=(code, side, request.sid))
+                timer.daemon = True
+                disconnect_timers[(code, side)] = timer
+                timer.start()
 
-        sid_room.pop(request.sid, None)
         connected_sids.discard(request.sid)
 
     socketio.emit("online_count", {"count": len(online_sids)})
