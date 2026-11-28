@@ -724,7 +724,7 @@ function startBotGame(){
     botIncrement=Number(document.getElementById("botIncrement").value);
     if(botColor==="random")botColor=Math.random()<.5?"white":"black";
     myColor=botColor;board=initialBoard();currentTurn="white";gameOver=false;
-    selectedSquare=null;legalSquares=[];lastMove=null;gameMoves=[];
+    selectedSquare=null;legalSquares=[];lastMove=null;gameMoves=[];renderMoveList();
     localEnPassant=null;localCastlingRights={whiteKing:true,whiteQueen:true,blackKing:true,blackQueen:true};
     whiteTime=botTime;blackTime=botTime;gameStartTime=Date.now();
     document.getElementById("gameTitle").textContent="Play Against Bot";
@@ -1514,7 +1514,7 @@ socket.on("private_lobby_created",data=>{
 socket.on("match_found",data=>{
     clearBoardArrows();
     queueSearching=false;gameMode="online";myColor=data.color;currentGame=data.room;
-    gameOver=false;selectedSquare=null;legalSquares=[];lastMove=null;gameMoves=[];
+    gameOver=false;selectedSquare=null;legalSquares=[];lastMove=null;gameMoves=[];renderMoveList();
     gameUnlimited=!!data.unlimited||Number(data.seconds)===0;
     isTournamentGame=!!data.tournament;
     board=initialBoard();currentTurn="white";
@@ -2041,7 +2041,7 @@ function startDailyChallengeGame(){
     myColor=currentDailyChallenge.side_to_move||"white";
     botColor=myColor==="white"?"black":"white";
     board=currentDailyChallenge.position.map(row=>row.slice());
-    currentTurn=myColor;gameOver=false;selectedSquare=null;legalSquares=[];lastMove=null;gameMoves=[];
+    currentTurn=myColor;gameOver=false;selectedSquare=null;legalSquares=[];lastMove=null;gameMoves=[];renderMoveList();
     localEnPassant=null;
     localCastlingRights={whiteKing:false,whiteQueen:false,blackKing:false,blackQueen:false};
     botTime=0;botIncrement=0;whiteTime=0;blackTime=0;gameStartTime=Date.now();
