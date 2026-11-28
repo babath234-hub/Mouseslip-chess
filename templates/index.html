@@ -1225,7 +1225,9 @@ async function botMove(){
         const move=mode==="bot"?await chooseStockfishBotMove():chooseBotMove();
         if(generation!==botGeneration||startedAt!==gameStartTime||mode!==gameMode||turn!==currentTurn||gameOver)return;
         if(!move){
-            if(mode==="bot"&&document.getElementById("gameStatus")?.textContent.startsWith("Stockfish could not")){
+            const botStatus=document.getElementById("gameStatus")?.textContent||"";
+            if(mode==="bot"&&(botStatus.startsWith("Stockfish could not")||botStatus.startsWith("Stockfish error:"))){
+                // A failed engine request is not a chess result. Pause instead of awarding a false win.
                 gameOver=true;stopClock();return;
             }
             if(gameMode==="dailyChallenge")endLocalGame(myColor,"the bot has no legal moves");
