@@ -1127,7 +1127,7 @@ function getStockfishWorker(){
                 ready=true;resolve(worker);
             }else if(line.startsWith("bestmove ")&&stockfishPending){
                 const pending=stockfishPending;stockfishPending=null;
-                const move=line.split(/\\s+/)[1];
+                const move=line.split(" ")[1];
                 pending.resolve(move==="(none)"?null:move);
             }
         };
