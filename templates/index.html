@@ -1450,6 +1450,10 @@ function joinPrivateLobby(){
 }
 
 // SOCKET EVENTS
+socket.on("online_count",data=>{
+    const counter=document.getElementById("onlinePlayerCount");
+    if(counter)counter.textContent="Players online: "+Math.max(0,Number(data.count)||0);
+});
 socket.on("invite_status",data=>showMessage("friendMessage",data.message||"Invitation sent."));
 socket.on("invite_error",data=>showMessage("friendMessage",data.error||"Invitation failed.",true));
 socket.on("invite_declined",data=>showMessage("friendMessage",data.message||"Invitation declined.",true));
@@ -1486,6 +1490,7 @@ socket.on("private_lobby_created",data=>{
         "<p>Share this code with your opponent.</p>";
 });
 socket.on("match_found",data=>{
+    clearBoardArrows();
     queueSearching=false;gameMode="online";myColor=data.color;currentGame=data.room;
     gameOver=false;selectedSquare=null;legalSquares=[];lastMove=null;gameMoves=[];
     gameUnlimited=!!data.unlimited||Number(data.seconds)===0;
@@ -1494,6 +1499,7 @@ socket.on("match_found",data=>{
     whiteTime=gameUnlimited?0:Number(data.seconds);blackTime=gameUnlimited?0:Number(data.seconds);
     document.getElementById("gameTitle").textContent=data.tournament?"Tournament Match":data.rated?"Rated Online Game":"Private Game";
     document.getElementById("gameOpponent").textContent="Playing against "+(data.opponent||"Opponent");
+    restoreLastGameResult();
     document.getElementById("gameChatPanel").classList.remove("hidden");
     document.getElementById("restartGameButton").classList.remove("hidden");
     document.getElementById("resignGameButton").classList.remove("hidden");
@@ -1542,7 +1548,8 @@ socket.on("match_result",data=>{
         return;
     }
     const won=data.winner===myColor;
-    document.getElementById("gameStatus").textContent=(won?"You won!":"You lost!")+" — "+(data.reason||"Game finished");
+    lastGameResultText=(won?"You won!":"You lost!")+" — "+(data.reason||"Game finished");
+    document.getElementById("gameStatus").textContent=lastGameResultText;
     if(gameMode==="online"&&!isTournamentGame)document.getElementById("rematchButton").classList.remove("hidden");
     if(data.ratings){
         const rating=data.ratings[myColor];
@@ -1931,6 +1938,7 @@ async function loadDailyChallenge(){
     }catch(error){container.textContent=error.message}
 }
 function startDailyChallengeGame(){
+    clearBoardArrows();
     if(!currentDailyChallenge)return;
     gameMode="dailyChallenge";gameUnlimited=true;isTournamentGame=false;
     botDifficulty=Number(currentDailyChallenge.difficulty||2);
