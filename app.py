@@ -8,6 +8,7 @@ import secrets
 import string
 import logging
 import threading
+import urllib.request
 
 from datetime import datetime, timezone, date, timedelta
 from zoneinfo import ZoneInfo
@@ -24,6 +25,39 @@ from supabase import create_client
 logging.basicConfig(level=logging.INFO)
 
 app = Flask(__name__)
+
+# Stockfish's browser worker requests this WASM file from /static.
+# Download the pinned GPL-3.0 Stockfish 19 lite single-threaded asset
+# when the Render service starts, so players do not depend on a third-party CDN.
+def ensure_stockfish_wasm():
+    wasm_path = os.path.join(os.path.dirname(__file__), "static", "stockfish-worker.wasm")
+    if os.path.isfile(wasm_path) and os.path.getsize(wasm_path) > 1000000:
+        return
+
+    os.makedirs(os.path.dirname(wasm_path), exist_ok=True)
+    urls = [
+        "https://cdn.jsdelivr.net/npm/stockfish@19.0.1/bin/stockfish-19-lite-single.wasm",
+        "https://unpkg.com/stockfish@19.0.1/bin/stockfish-19-lite-single.wasm",
+    ]
+    last_error = None
+    for url in urls:
+        try:
+            req = urllib.request.Request(url, headers={"User-Agent": "Mouseslip-Chess/1.0"})
+            with urllib.request.urlopen(req, timeout=30) as response:
+                data = response.read()
+            if not data.startswith(b"\\x00asm") or len(data) < 1000000:
+                raise ValueError("Downloaded Stockfish WASM file is invalid or incomplete.")
+            with open(wasm_path, "wb") as wasm_file:
+                wasm_file.write(data)
+            logging.info("Stockfish WASM ready (%s bytes).", len(data))
+            return
+        except Exception as error:
+            last_error = error
+            logging.warning("Could not download Stockfish WASM from %s: %s", url, error)
+
+    logging.error("Stockfish WASM is unavailable; bot games will not initialize: %s", last_error)
+
+ensure_stockfish_wasm()
 app.config["SECRET_KEY"] = os.environ["FLASK_SECRET_KEY"]
 app.config["SESSION_COOKIE_HTTPONLY"] = True
 app.config["SESSION_COOKIE_SECURE"] = True
