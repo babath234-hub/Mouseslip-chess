@@ -45,7 +45,7 @@ def ensure_stockfish_wasm():
             req = urllib.request.Request(url, headers={"User-Agent": "Mouseslip-Chess/1.0"})
             with urllib.request.urlopen(req, timeout=30) as response:
                 data = response.read()
-            if not data.startswith(b"\\x00asm") or len(data) < 1000000:
+            if not data.startswith(b"\x00asm") or len(data) < 1000000:
                 raise ValueError("Downloaded Stockfish WASM file is invalid or incomplete.")
             with open(wasm_path, "wb") as wasm_file:
                 wasm_file.write(data)
