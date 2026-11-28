@@ -444,6 +444,7 @@ let currentUser=null,currentGame=null,gameMode=null,myColor="white";
 let selectedSquare=null,legalSquares=[],board=[],currentTurn="white";
 let gameOver=false,queueSearching=false,privateRoomCode=null;
 let botDifficulty=2,botColor="white",botTime=300,botIncrement=0;
+let stockfishWorker=null,stockfishReady=null,stockfishPending=null,botThinking=false,botGeneration=0;
 let whiteTime=300,blackTime=300,clockInterval=null,lastMove=null;
 let gameUnlimited=false,isTournamentGame=false;
 let localEnPassant=null;
@@ -703,6 +704,7 @@ async function viewPublicProfile(username){
 // BOT GAME
 function startBotGame(){
     if(!currentUser){showScreen("accountScreen");showMessage("accountMessage","Log in before playing.");return}
+    botGeneration++;botThinking=false;
     gameMode="bot";gameUnlimited=false;isTournamentGame=false;
     botDifficulty=Number(document.getElementById("botDifficulty").value);
     botColor=document.getElementById("botColor").value;
@@ -1092,30 +1094,129 @@ function chooseBotMove(){
     }
     return bestMoves[Math.floor(Math.random()*bestMoves.length)]||moves[0];
 }
-function botMove(){
-    if(gameOver||(gameMode!=="bot"&&gameMode!=="dailyChallenge")||currentTurn===myColor)return;
-    const move=chooseBotMove();
-    if(!move){
-        if(gameMode==="dailyChallenge")endLocalGame(myColor,"the bot has no legal moves");
-        else endLocalGame(myColor,"no available moves");
-        return;
+function boardToStockfishFEN(){
+    const placement=board.map(row=>{
+        let result="",empty=0;
+        for(const piece of row){
+            if(piece==="."){empty++;continue;}
+            if(empty){result+=empty;empty=0;}
+            result+=piece;
+        }
+        if(empty)result+=empty;
+        return result;
+    }).join("/");
+    let castling="";
+    if(localCastlingRights.whiteKing)castling+="K";
+    if(localCastlingRights.whiteQueen)castling+="Q";
+    if(localCastlingRights.blackKing)castling+="k";
+    if(localCastlingRights.blackQueen)castling+="q";
+    const ep=localEnPassant?squareName(localEnPassant[0],localEnPassant[1]):"-";
+    return placement+" "+(currentTurn==="white"?"w":"b")+" "+(castling||"-")+" "+ep+" 0 "+(Math.floor(gameMoves.length/2)+1);
+}
+function getStockfishWorker(){
+    if(stockfishReady)return stockfishReady;
+    stockfishReady=new Promise((resolve,reject)=>{
+        const worker=new Worker("/static/stockfish-worker.js");
+        stockfishWorker=worker;
+        let ready=false;
+        worker.onmessage=event=>{
+            const line=String(event.data||"").trim();
+            if(line==="uciok"){
+                worker.postMessage("isready");
+            }else if(line==="readyok"&&!ready){
+                ready=true;resolve(worker);
+            }else if(line.startsWith("bestmove ")&&stockfishPending){
+                const pending=stockfishPending;stockfishPending=null;
+                const move=line.split(/\\s+/)[1];
+                pending.resolve(move==="(none)"?null:move);
+            }
+        };
+        worker.onerror=error=>{
+            stockfishReady=null;stockfishWorker=null;
+            if(stockfishPending){const pending=stockfishPending;stockfishPending=null;pending.reject(error);}
+            if(!ready)reject(error);
+        };
+        worker.postMessage("uci");
+    }).catch(error=>{
+        stockfishReady=null;
+        throw error;
+    });
+    return stockfishReady;
+}
+async function requestStockfishMove(){
+    const worker=await getStockfishWorker();
+    const settings={
+        1:{skill:0,depth:4},
+        2:{skill:5,depth:7},
+        3:{skill:12,depth:10},
+        4:{skill:20,depth:14}
+    }[Number(botDifficulty)]||{skill:5,depth:7};
+    worker.postMessage("setoption name Skill Level value "+settings.skill);
+    worker.postMessage("position fen "+boardToStockfishFEN());
+    return new Promise((resolve,reject)=>{
+        if(stockfishPending){reject(new Error("Stockfish is already thinking."));return;}
+        stockfishPending={resolve,reject};
+        worker.postMessage("go depth "+settings.depth);
+    });
+}
+function stockfishMoveToLocal(uci,moves){
+    if(!uci||! /^[a-h][1-8][a-h][1-8][qrbn]?$/.test(uci))return null;
+    const from=[8-Number(uci[1]),FILES.indexOf(uci[0])];
+    const to=[8-Number(uci[3]),FILES.indexOf(uci[2])];
+    return moves.find(move=>move.from[0]===from[0]&&move.from[1]===from[1]&&move.to[0]===to[0]&&move.to[1]===to[1])||null;
+}
+async function chooseStockfishBotMove(){
+    const moves=allMovesFor(currentTurn);
+    if(!moves.length)return null;
+
+    // Expert alone has a Mouseslip-specific king-capture priority.
+    if(Number(botDifficulty)===4){
+        const enemyKing=currentTurn==="white"?"k":"K";
+        const winningMove=moves.find(move=>board[move.to[0]][move.to[1]]===enemyKing);
+        if(winningMove)return winningMove;
     }
-    const destinations=getLegalMoves(move.from[0],move.from[1]);
-    const destination=chooseSlip(move.from,move.to,destinations);
-    const movingColor=currentTurn;
-    const captured=applyLocalMove(move.from,destination,randomPromotion());
-    currentTurn=currentTurn==="white"?"black":"white";
-    if(botIncrement){
-        if(movingColor==="white")whiteTime+=botIncrement;else blackTime+=botIncrement;
+
+    try{
+        const uci=await requestStockfishMove();
+        const selected=stockfishMoveToLocal(uci,moves);
+        if(selected)return selected;
+        console.warn("Stockfish suggested a move outside Mouseslip Chess legal moves; using the fallback engine.");
+    }catch(error){
+        console.warn("Stockfish could not start; using the built-in fallback engine.",error);
     }
-    renderBoard();
-    if(captured&&captured.toLowerCase()==="k"){
-        endLocalGame(movingColor,"king captured");
-        return;
-    }
-    if(gameMode==="dailyChallenge"&&!allMovesFor(currentTurn).length){
-        endLocalGame(movingColor,"the player to move has no legal moves");
-        return;
+    return chooseBotMove();
+}
+async function botMove(){
+    if(gameOver||(gameMode!=="bot"&&gameMode!=="dailyChallenge")||currentTurn===myColor||botThinking)return;
+    botThinking=true;
+    const generation=botGeneration,startedAt=gameStartTime,mode=gameMode,turn=currentTurn;
+    try{
+        const move=mode==="bot"?await chooseStockfishBotMove():chooseBotMove();
+        if(generation!==botGeneration||startedAt!==gameStartTime||mode!==gameMode||turn!==currentTurn||gameOver)return;
+        if(!move){
+            if(gameMode==="dailyChallenge")endLocalGame(myColor,"the bot has no legal moves");
+            else endLocalGame(myColor,"no available moves");
+            return;
+        }
+        const destinations=getLegalMoves(move.from[0],move.from[1]);
+        const destination=chooseSlip(move.from,move.to,destinations);
+        const movingColor=currentTurn;
+        const captured=applyLocalMove(move.from,destination,randomPromotion());
+        currentTurn=currentTurn==="white"?"black":"white";
+        if(botIncrement){
+            if(movingColor==="white")whiteTime+=botIncrement;else blackTime+=botIncrement;
+        }
+        renderBoard();
+        if(captured&&captured.toLowerCase()==="k"){
+            endLocalGame(movingColor,"king captured");
+            return;
+        }
+        if(gameMode==="dailyChallenge"&&!allMovesFor(currentTurn).length){
+            endLocalGame(movingColor,"the player to move has no legal moves");
+            return;
+        }
+    }finally{
+        if(generation===botGeneration)botThinking=false;
     }
 }
 
