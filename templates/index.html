@@ -462,7 +462,7 @@ let gameMoves=[],customBoardTheme="classic",customPieceTheme="classic";
 let replayStates=[],replayMoves=[],replayIndex=0;
 let challengeEditorBoard=null,currentDailyChallenge=null;
 let gameStartTime=0,analysisArrows=[];
-let boardArrows=[],arrowStart=null,lastGameResultText="";
+let boardArrows=[],arrowStart=null,lastIntendedMove=null,lastGameResultText="";
 let gameSoundsEnabled=false,audioContext=null;
 let hallSongMuted=false;
 
@@ -718,7 +718,7 @@ function startBotGame(){
     clearBoardArrows();
     if(!currentUser){showScreen("accountScreen");showMessage("accountMessage","Log in before playing.");return}
     botGeneration++;botThinking=false;
-    gameMode="bot";gameUnlimited=false;isTournamentGame=false;
+    lastIntendedMove=null;gameMode="bot";gameUnlimited=false;isTournamentGame=false;
     botDifficulty=Number(document.getElementById("botDifficulty").value);
     botColor=document.getElementById("botColor").value;
     botTime=Number(document.getElementById("botSeconds").value);
@@ -972,6 +972,24 @@ function renderBoardArrows(){
     const head=document.createElementNS(ns,"path");
     head.setAttribute("d","M0,0 L7,3.5 L0,7 Z");head.setAttribute("fill","#e34b4b");
     marker.appendChild(head);defs.appendChild(marker);svg.appendChild(defs);
+    if(lastIntendedMove){
+        const flipped=myColor==="black";
+        const fr=flipped?7-lastIntendedMove.from[0]:lastIntendedMove.from[0];
+        const fc=flipped?7-lastIntendedMove.from[1]:lastIntendedMove.from[1];
+        const tr=flipped?7-lastIntendedMove.to[0]:lastIntendedMove.to[0];
+        const tc=flipped?7-lastIntendedMove.to[1]:lastIntendedMove.to[1];
+        const marker=document.createElementNS(ns,"marker");
+        marker.setAttribute("id","intendedArrowHead");marker.setAttribute("markerWidth","7");marker.setAttribute("markerHeight","7");
+        marker.setAttribute("refX","5.5");marker.setAttribute("refY","3.5");marker.setAttribute("orient","auto");marker.setAttribute("markerUnits","strokeWidth");
+        const head=document.createElementNS(ns,"path");head.setAttribute("d","M0,0 L7,3.5 L0,7 Z");head.setAttribute("fill","#27c99a");
+        marker.appendChild(head);defs.appendChild(marker);
+        const line=document.createElementNS(ns,"line");
+        line.setAttribute("x1",String((fc+.5)*100));line.setAttribute("y1",String((fr+.5)*100));
+        line.setAttribute("x2",String((tc+.5)*100));line.setAttribute("y2",String((tr+.5)*100));
+        line.setAttribute("stroke","#27c99a");line.setAttribute("stroke-width","13");line.setAttribute("stroke-linecap","round");
+        line.setAttribute("marker-end","url(#intendedArrowHead)");line.setAttribute("opacity",".9");
+        svg.appendChild(line);
+    }
     const flipped=myColor==="black";
     for(const arrow of boardArrows){
         const fr=flipped?7-arrow.from[0]:arrow.from[0];
@@ -1515,7 +1533,7 @@ socket.on("private_lobby_created",data=>{
 });
 socket.on("match_found",data=>{
     clearBoardArrows();
-    queueSearching=false;gameMode="online";myColor=data.color;currentGame=data.room;
+    lastIntendedMove=null;queueSearching=false;gameMode="online";myColor=data.color;currentGame=data.room;
     gameOver=false;selectedSquare=null;legalSquares=[];lastMove=null;gameMoves=[];renderMoveList();
     gameUnlimited=!!data.unlimited||Number(data.seconds)===0;
     isTournamentGame=!!data.tournament;
@@ -1553,6 +1571,15 @@ socket.on("tournament_waiting",data=>{
 });
 socket.on("move_made",data=>{
     board=data.board;currentTurn=data.turn;
+    lastIntendedMove=null;
+    const latestMove=Array.isArray(data.moves)&&data.moves.length?data.moves[data.moves.length-1]:null;
+    if(latestMove&&latestMove.intended_to&&latestMove.intended_to!==latestMove.to){
+        const moverColor=colorOf(latestMove.piece);
+        if(gameMode==="spectator"||moverColor!==myColor){
+            const from=parseSquare(latestMove.from),to=parseSquare(latestMove.intended_to);
+            if(from&&to)lastIntendedMove={from,to};
+        }
+    }
     whiteTime=data.white_time;blackTime=data.black_time;
     if(data.moves)gameMoves=data.moves;
     renderMoveList();
@@ -2038,7 +2065,7 @@ async function loadDailyChallenge(){
 function startDailyChallengeGame(){
     clearBoardArrows();
     if(!currentDailyChallenge)return;
-    gameMode="dailyChallenge";gameUnlimited=true;isTournamentGame=false;
+    lastIntendedMove=null;gameMode="dailyChallenge";gameUnlimited=true;isTournamentGame=false;
     botDifficulty=Number(currentDailyChallenge.difficulty||2);
     myColor=currentDailyChallenge.side_to_move||"white";
     botColor=myColor==="white"?"black":"white";
