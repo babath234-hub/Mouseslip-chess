@@ -1031,6 +1031,7 @@ function handleSquareClick(r,c){
     const movingColor=currentTurn;
     const promotion=board[start[0]][start[1]].toLowerCase()==="p"&&(slipped[0]===0||slipped[0]===7)?slipPromotion(requestedPromotion()):"q";
     const captured=applyLocalMove(start,slipped,promotion);
+    playGameSound(slipped[0]!==intended[0]||slipped[1]!==intended[1]?"slip":captured&&captured!=="."?"capture":"move");
     currentTurn=movingColor==="white"?"black":"white";
     if(movingColor===myColor&&botIncrement){
         if(movingColor==="white")whiteTime+=botIncrement;else blackTime+=botIncrement;
@@ -1320,6 +1321,7 @@ async function botMove(){
         const destination=chooseSlip(move.from,move.to,destinations,botSlipChance);
         const movingColor=currentTurn;
         const captured=applyLocalMove(move.from,destination,randomPromotion());
+        playGameSound(destination[0]!==move.to[0]||destination[1]!==move.to[1]?"slip":captured&&captured!=="."?"capture":"move");
         currentTurn=currentTurn==="white"?"black":"white";
         if(botIncrement){
             if(movingColor==="white")whiteTime+=botIncrement;else blackTime+=botIncrement;
@@ -1341,6 +1343,7 @@ async function botMove(){
 // LOCAL GAME RESULT
 function endLocalGame(winner,reason){
     gameOver=true;stopClock();
+    playGameSound("end");
     if(gameMode==="dailyChallenge"&&currentDailyChallenge){
         const result=winner==="draw"?"Draw":(winner===myColor?"Win":"Lose");
         const achieved=result===currentDailyChallenge.goal;
@@ -1631,7 +1634,14 @@ function toggleGameSounds(){
     const button=document.getElementById("soundToggleButton");
     if(button)button.textContent="Sounds: "+(gameSoundsEnabled?"On":"Off");
     if(gameSoundsEnabled){
-        try{const AudioClass=window.AudioContext||window.webkitAudioContext;if(AudioClass){audioContext=audioContext||new AudioClass();audioContext.resume();}}catch(_){}
+        try{
+            const AudioClass=window.AudioContext||window.webkitAudioContext;
+            if(!AudioClass)throw new Error("Web Audio is not supported by this browser.");
+            audioContext=audioContext||new AudioClass();
+            const resumed=audioContext.resume();
+            if(resumed&&typeof resumed.then==="function")resumed.then(()=>playGameSound("move")).catch(error=>console.warn("Could not enable game audio:",error));
+            else playGameSound("move");
+        }catch(error){console.warn("Could not enable game audio:",error);}
     }
 }
 function playGameSound(kind){
